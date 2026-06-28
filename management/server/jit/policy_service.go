@@ -1,0 +1,289 @@
+package jit
+
+import (
+	"context"
+	"fmt"
+
+	"github.com/rs/xid"
+	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/management/server/activity"
+	"github.com/netbirdio/netbird/management/server/types"
+)
+
+// defaultTraffic is applied when a create request omits the traffic field:
+// allow all protocols/ports (mirrors the sidecar's DEFAULT_TRAFFIC).
+var defaultTraffic = types.JitTraffic{Protocol: "all"}
+
+// CreateJitPolicyInput is the validated payload for CreatePolicy. It mirrors the
+// sidecar's CreateJitPolicyRequest. Traffic and PendingTTLMinutes are pointers
+// so an omitted value can be distinguished from a zero value and defaulted.
+type CreateJitPolicyInput struct {
+	Name               string
+	Description        string
+	TargetResourceIDs  []string
+	Traffic            *types.JitTraffic
+	MaxDurationMinutes int
+	RequestableBy      types.JitRequestableBy
+	ApproverCriteria   types.JitApproverCriteria
+	PendingTTLMinutes  *int
+}
+
+// UpdateJitPolicyInput is a sparse patch for UpdatePolicy. Every field is a
+// pointer: nil means "leave unchanged" (mirrors the sidecar's partial
+// UpdateJitPolicyRequest). Changing Name, TargetResourceIDs, or Traffic
+// re-syncs the backing NetBird access policy.
+type UpdateJitPolicyInput struct {
+	Name               *string
+	Description        *string
+	TargetResourceIDs  *[]string
+	Traffic            *types.JitTraffic
+	MaxDurationMinutes *int
+	RequestableBy      *types.JitRequestableBy
+	ApproverCriteria   *types.JitApproverCriteria
+	PendingTTLMinutes  *int
+	Enabled            *bool
+}
+
+// CreatePolicy persists a JIT policy, provisions its backing group + access
+// policy, and writes the provisioned IDs back onto the row.
+//
+// Order mirrors the sidecar (policyService.ts):
+//  1. Persist the row first (Enabled=true, backing IDs empty) so it has a stable id.
+//  2. Provision the backing group + NetBird policy.
+//  3. Write the backing IDs back onto the row.
+//  4. Emit JitPolicyCreated.
+//
+// If provisioning (or the write-back) fails, the persisted row is deleted
+// (rollback) and the error is returned — no event is emitted.
+func (m *Manager) CreatePolicy(
+	ctx context.Context,
+	accountID, userID string,
+	in CreateJitPolicyInput,
+) (*types.JitPolicy, error) {
+	traffic := defaultTraffic
+	if in.Traffic != nil {
+		traffic = *in.Traffic
+	}
+	pendingTTL := m.defaultPendingTTL
+	if in.PendingTTLMinutes != nil {
+		pendingTTL = *in.PendingTTLMinutes
+	}
+
+	// Step 1: persist first (no backing ids yet) so we have a stable id.
+	policy := &types.JitPolicy{
+		ID:                 xid.New().String(),
+		AccountID:          accountID,
+		Name:               in.Name,
+		Description:        in.Description,
+		TargetResourceIDs:  in.TargetResourceIDs,
+		Traffic:            traffic,
+		MaxDurationMinutes: in.MaxDurationMinutes,
+		RequestableBy:      in.RequestableBy,
+		ApproverCriteria:   in.ApproverCriteria,
+		PendingTTLMinutes:  pendingTTL,
+		Enabled:            true,
+		CreatedByUserID:    userID,
+	}
+	if err := m.store.SaveJitPolicy(ctx, policy); err != nil {
+		return nil, fmt.Errorf("jit: persist policy: %w", err)
+	}
+
+	// Step 2: provision the backing group + NetBird policy; roll back on failure.
+	backingGroupID, netbirdPolicyID, err := ProvisionBacking(ctx, m.prov, accountID, userID, ProvisionSpec{
+		Name:              policy.Name,
+		Description:       policy.Description,
+		TargetResourceIDs: policy.TargetResourceIDs,
+		Traffic:           policy.Traffic,
+	})
+	if err != nil {
+		m.rollbackCreate(ctx, accountID, userID, policy.ID, err)
+		return nil, err
+	}
+
+	// Step 3: write the backing IDs back onto the row.
+	policy.BackingGroupID = backingGroupID
+	policy.NetbirdPolicyID = netbirdPolicyID
+	if err := m.store.SaveJitPolicy(ctx, policy); err != nil {
+		m.rollbackCreate(ctx, accountID, userID, policy.ID, err)
+		return nil, fmt.Errorf("jit: write back backing ids: %w", err)
+	}
+
+	// Step 4: audit.
+	m.events.StoreEvent(ctx, userID, policy.ID, accountID, activity.JitPolicyCreated, map[string]any{
+		"name":            policy.Name,
+		"backingGroupId":  backingGroupID,
+		"netbirdPolicyId": netbirdPolicyID,
+	})
+	return policy, nil
+}
+
+// rollbackCreate deletes a half-created policy row after a provisioning failure
+// and best-effort tears down any backing objects that were created. It mirrors
+// the sidecar's repo.remove(draft.id) on the failure path, but additionally
+// reverses partial provisioning so a failed create leaves nothing behind.
+func (m *Manager) rollbackCreate(ctx context.Context, accountID, userID, policyID string, cause error) {
+	if delErr := m.store.DeleteJitPolicy(ctx, accountID, policyID); delErr != nil {
+		log.WithContext(ctx).Errorf("jit: failed to roll back policy %s after provisioning error (%v): %v", policyID, cause, delErr)
+	} else {
+		log.WithContext(ctx).Warnf("jit: policy %s provisioning failed; rolled back row: %v", policyID, cause)
+	}
+}
+
+// UpdatePolicy applies a sparse patch to a JIT policy and re-syncs the backing
+// NetBird access policy when the patch changes the policy's name, target
+// resources, or traffic. Account-scoped: a policy in another account is not
+// found.
+func (m *Manager) UpdatePolicy(
+	ctx context.Context,
+	accountID, userID, policyID string,
+	patch UpdateJitPolicyInput,
+) (*types.JitPolicy, error) {
+	policy, err := m.store.GetJitPolicyByID(ctx, accountID, policyID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Determine, before mutating, whether the backing policy must be re-synced.
+	touchesBackingPolicy := patch.TargetResourceIDs != nil ||
+		patch.Traffic != nil ||
+		(patch.Name != nil && *patch.Name != policy.Name)
+
+	applyPatch(policy, patch)
+
+	if err := m.store.SaveJitPolicy(ctx, policy); err != nil {
+		return nil, fmt.Errorf("jit: persist policy update: %w", err)
+	}
+
+	if touchesBackingPolicy {
+		if err := UpdateBackingPolicy(ctx, m.prov, accountID, userID, policy, ProvisionSpec{
+			Name:              policy.Name,
+			Description:       policy.Description,
+			TargetResourceIDs: policy.TargetResourceIDs,
+			Traffic:           policy.Traffic,
+		}); err != nil {
+			return nil, err
+		}
+	}
+
+	m.events.StoreEvent(ctx, userID, policy.ID, accountID, activity.JitPolicyUpdated, map[string]any{
+		"name":   policy.Name,
+		"fields": changedFields(patch),
+	})
+	return policy, nil
+}
+
+// applyPatch mutates policy in place with the non-nil fields of patch. The
+// caller owns the *types.JitPolicy (a fresh copy from the store), so this does
+// not mutate shared state.
+func applyPatch(policy *types.JitPolicy, patch UpdateJitPolicyInput) {
+	if patch.Name != nil {
+		policy.Name = *patch.Name
+	}
+	if patch.Description != nil {
+		policy.Description = *patch.Description
+	}
+	if patch.TargetResourceIDs != nil {
+		policy.TargetResourceIDs = *patch.TargetResourceIDs
+	}
+	if patch.Traffic != nil {
+		policy.Traffic = *patch.Traffic
+	}
+	if patch.MaxDurationMinutes != nil {
+		policy.MaxDurationMinutes = *patch.MaxDurationMinutes
+	}
+	if patch.RequestableBy != nil {
+		policy.RequestableBy = *patch.RequestableBy
+	}
+	if patch.ApproverCriteria != nil {
+		policy.ApproverCriteria = *patch.ApproverCriteria
+	}
+	if patch.PendingTTLMinutes != nil {
+		policy.PendingTTLMinutes = *patch.PendingTTLMinutes
+	}
+	if patch.Enabled != nil {
+		policy.Enabled = *patch.Enabled
+	}
+}
+
+// changedFields lists the patch fields that were set, for the audit meta.
+func changedFields(patch UpdateJitPolicyInput) []string {
+	var fields []string
+	if patch.Name != nil {
+		fields = append(fields, "name")
+	}
+	if patch.Description != nil {
+		fields = append(fields, "description")
+	}
+	if patch.TargetResourceIDs != nil {
+		fields = append(fields, "targetResourceIds")
+	}
+	if patch.Traffic != nil {
+		fields = append(fields, "traffic")
+	}
+	if patch.MaxDurationMinutes != nil {
+		fields = append(fields, "maxDurationMinutes")
+	}
+	if patch.RequestableBy != nil {
+		fields = append(fields, "requestableBy")
+	}
+	if patch.ApproverCriteria != nil {
+		fields = append(fields, "approverCriteria")
+	}
+	if patch.PendingTTLMinutes != nil {
+		fields = append(fields, "pendingTtlMinutes")
+	}
+	if patch.Enabled != nil {
+		fields = append(fields, "enabled")
+	}
+	return fields
+}
+
+// DeletePolicy tears down a JIT policy in a strict cascade so no grant is ever
+// left pointing at a deleted policy and no backing object is orphaned:
+//
+//  1. Terminate every grant for the policy (voids grants + removes memberships).
+//  2. Deprovision the backing objects (delete the access policy, then the group).
+//  3. Delete the policy row.
+//  4. Emit JitPolicyDeleted.
+//
+// The order is load-bearing and fail-closed: if grant termination fails the
+// function returns immediately, leaving the policy and its backing objects
+// intact so the caller can retry. Account-scoped.
+func (m *Manager) DeletePolicy(ctx context.Context, accountID, userID, policyID string) error {
+	policy, err := m.store.GetJitPolicyByID(ctx, accountID, policyID)
+	if err != nil {
+		return err
+	}
+
+	// Step 1: cascade — void every grant before tearing down backing objects.
+	if err := m.grants.TerminateGrantsForPolicy(ctx, accountID, policyID, "policy deleted"); err != nil {
+		return fmt.Errorf("jit: terminate grants for policy %s: %w", policyID, err)
+	}
+
+	// Step 2: deprovision the NetBird access policy + backing group.
+	if err := DeprovisionBacking(ctx, m.prov, accountID, userID, policy.BackingGroupID, policy.NetbirdPolicyID); err != nil {
+		return err
+	}
+
+	// Step 3: delete the row.
+	if err := m.store.DeleteJitPolicy(ctx, accountID, policyID); err != nil {
+		return fmt.Errorf("jit: delete policy row %s: %w", policyID, err)
+	}
+
+	// Step 4: audit.
+	m.events.StoreEvent(ctx, userID, policyID, accountID, activity.JitPolicyDeleted, map[string]any{
+		"name": policy.Name,
+	})
+	return nil
+}
+
+// GetPolicy returns a single account-scoped JIT policy.
+func (m *Manager) GetPolicy(ctx context.Context, accountID, policyID string) (*types.JitPolicy, error) {
+	return m.store.GetJitPolicyByID(ctx, accountID, policyID)
+}
+
+// ListPolicies returns all JIT policies for an account.
+func (m *Manager) ListPolicies(ctx context.Context, accountID string) ([]*types.JitPolicy, error) {
+	return m.store.ListJitPolicies(ctx, accountID)
+}

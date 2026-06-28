@@ -21,8 +21,8 @@ import (
 // It tracks the groups and policies it has created, and allows tests to
 // inject errors at specific call sites.
 type fakeProvisioner struct {
-	groups   map[string]*types.Group   // groupID → group
-	policies map[string]*types.Policy  // policyID → policy
+	groups    map[string]*types.Group  // groupID → group
+	policies  map[string]*types.Policy // policyID → policy
 	resources []*resourceTypes.NetworkResource
 
 	// Error injection: set to a non-nil value to make the next call of that
@@ -38,6 +38,12 @@ type fakeProvisioner struct {
 	deleteGroupCalls  int
 	savePolicyCalls   int
 	deletePolicyCalls int
+
+	// Ordering hooks (used by policy-service delete-cascade tests). Fire inside
+	// DeleteGroup / DeletePolicy before the error check so callers can record
+	// the interleaving of deprovisioning relative to other dependencies.
+	onDeleteGroup  func()
+	onDeletePolicy func()
 
 	// Track the IDs passed to Delete* for idempotency tests.
 	deletedGroups   []string
@@ -70,6 +76,9 @@ func (f *fakeProvisioner) CreateGroup(_ context.Context, accountID, _ string, g 
 
 func (f *fakeProvisioner) DeleteGroup(_ context.Context, _, _, groupID string) error {
 	f.deleteGroupCalls++
+	if f.onDeleteGroup != nil {
+		f.onDeleteGroup()
+	}
 	if f.deleteGroupErr != nil {
 		return f.deleteGroupErr
 	}
@@ -100,6 +109,9 @@ func (f *fakeProvisioner) SavePolicy(_ context.Context, accountID, _ string, p *
 
 func (f *fakeProvisioner) DeletePolicy(_ context.Context, _, policyID, _ string) error {
 	f.deletePolicyCalls++
+	if f.onDeletePolicy != nil {
+		f.onDeletePolicy()
+	}
 	if f.deletePolicyErr != nil {
 		return f.deletePolicyErr
 	}
