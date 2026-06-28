@@ -226,6 +226,20 @@ func (f *fakeStore) ListPendingJitGrantsExpiringBefore(_ context.Context, thresh
 	return out, nil
 }
 
+func (f *fakeStore) ListFailedJitGrants(_ context.Context) ([]*types.JitGrant, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.record("ListFailedJitGrants")
+	var out []*types.JitGrant
+	for _, g := range f.grants {
+		if g.Status == types.GrantStatusFailed {
+			clone := *g
+			out = append(out, &clone)
+		}
+	}
+	return out, nil
+}
+
 func (f *fakeStore) ActiveGrantUserIDsForPolicy(_ context.Context, accountID, policyID string) ([]string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()

@@ -31,6 +31,9 @@ type Store interface {
 	GetActiveJitGrantFor(ctx context.Context, accountID, requesterUserID, policyID string) (*types.JitGrant, error)
 	ListActiveJitGrantsExpiringBefore(ctx context.Context, threshold time.Time) ([]*types.JitGrant, error)
 	ListPendingJitGrantsExpiringBefore(ctx context.Context, threshold time.Time) ([]*types.JitGrant, error)
+	// ListFailedJitGrants returns all failed grants across all accounts for
+	// the global retry sweep.
+	ListFailedJitGrants(ctx context.Context) ([]*types.JitGrant, error)
 	ActiveGrantUserIDsForPolicy(ctx context.Context, accountID, policyID string) ([]string, error)
 	TransitionJitGrantStatus(ctx context.Context, grantID string, from, to types.GrantStatus, patch types.JitGrantPatch) (*types.JitGrant, bool, error)
 }
@@ -78,6 +81,9 @@ type Manager struct {
 	// Off by default (mirrors the sidecar's allowSelfApproval default of false);
 	// wired from config in Task 9.
 	allowSelfApproval bool
+
+	// sweeper holds the background sweep-loop control state.
+	sweeper sweeper
 }
 
 // NewManager wires the JIT manager.
