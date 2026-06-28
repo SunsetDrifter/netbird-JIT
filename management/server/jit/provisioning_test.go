@@ -300,6 +300,47 @@ func TestProvisionBacking_ResourceLookupFailure_RollsBackGroup(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// buildPolicy: rule IDs are unique and non-empty (multi-resource policies)
+// ---------------------------------------------------------------------------
+
+// TestProvisionBacking_MultiResource_RuleIDsAreUniqueAndNonEmpty guards the
+// fix for the PK collision: when a JIT policy targets N>1 resources, every
+// produced PolicyRule must carry a distinct, non-empty ID so that
+// validatePolicy's "assign policy.ID to empty rule IDs" fallback never fires
+// (which would make all rules share the same primary key → store constraint
+// violation).
+func TestProvisionBacking_MultiResource_RuleIDsAreUniqueAndNonEmpty(t *testing.T) {
+	p := newFakeProvisioner(
+		hostResource("res-a"),
+		hostResource("res-b"),
+		domainResource("res-c"),
+	)
+	spec := basicSpec("multi-pol", "res-a", "res-b", "res-c")
+
+	_, policyID, err := jit.ProvisionBacking(context.Background(), p, "acc1", "svc", spec)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	pol := p.policies[policyID]
+	if len(pol.Rules) != 3 {
+		t.Fatalf("expected 3 rules, got %d", len(pol.Rules))
+	}
+
+	seen := make(map[string]struct{}, len(pol.Rules))
+	for i, rule := range pol.Rules {
+		if rule.ID == "" {
+			t.Errorf("rule[%d].ID is empty — would trigger the validatePolicy PK-collision fallback", i)
+			continue
+		}
+		if _, dup := seen[rule.ID]; dup {
+			t.Errorf("rule[%d].ID = %q is a duplicate — PK collision would occur on save", i, rule.ID)
+		}
+		seen[rule.ID] = struct{}{}
+	}
+}
+
+// ---------------------------------------------------------------------------
 // deprovisionBacking: happy path
 // ---------------------------------------------------------------------------
 

@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/rs/xid"
+
 	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/management/status"
@@ -112,7 +114,11 @@ func buildPolicy(
 	rules := make([]*types.PolicyRule, 0, len(spec.TargetResourceIDs))
 	for i, rid := range spec.TargetResourceIDs {
 		rules = append(rules, &types.PolicyRule{
-			// Rule ID left empty — validatePolicy assigns it on save.
+			// Each rule gets a unique xid so validatePolicy's fallback
+			// (ruleCopy.ID = policy.ID) never fires — which would make
+			// all N rules share the same primary key and cause a store
+			// unique-constraint violation.
+			ID:          xid.New().String(),
 			Name:        MarkerName(marker, fmt.Sprintf("%s-%d", spec.Name, i)),
 			Description: "Managed by JIT — do not edit",
 			Enabled:     true,
