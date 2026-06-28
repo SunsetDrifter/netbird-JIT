@@ -345,6 +345,10 @@ type Store interface {
 	GetActiveJitGrantFor(ctx context.Context, accountID, requesterUserID, policyID string) (*types.JitGrant, error)
 	ListActiveJitGrantsExpiringBefore(ctx context.Context, threshold time.Time) ([]*types.JitGrant, error)
 	ListPendingJitGrantsExpiringBefore(ctx context.Context, threshold time.Time) ([]*types.JitGrant, error)
+	// ListFailedJitGrants returns all failed grants across all accounts for
+	// the scheduler retry sweep. There is no accountID filter: the sweep is
+	// global by design (cross-account), matching the other sweeper list methods.
+	ListFailedJitGrants(ctx context.Context) ([]*types.JitGrant, error)
 	ActiveGrantUserIDsForPolicy(ctx context.Context, accountID, policyID string) ([]string, error)
 
 	// TransitionJitGrantStatus is a compare-and-set atomic transition:

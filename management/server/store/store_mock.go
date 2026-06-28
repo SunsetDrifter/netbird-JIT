@@ -2761,6 +2761,21 @@ func (mr *MockStoreMockRecorder) ListFreeDomains(ctx, accountID interface{}) *go
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListFreeDomains", reflect.TypeOf((*MockStore)(nil).ListFreeDomains), ctx, accountID)
 }
 
+// ListFailedJitGrants mocks base method.
+func (m *MockStore) ListFailedJitGrants(ctx context.Context) ([]*types2.JitGrant, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListFailedJitGrants", ctx)
+	ret0, _ := ret[0].([]*types2.JitGrant)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListFailedJitGrants indicates an expected call of ListFailedJitGrants.
+func (mr *MockStoreMockRecorder) ListFailedJitGrants(ctx interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListFailedJitGrants", reflect.TypeOf((*MockStore)(nil).ListFailedJitGrants), ctx)
+}
+
 // ListJitGrantsByAccount mocks base method.
 func (m *MockStore) ListJitGrantsByAccount(ctx context.Context, accountID string, status types2.GrantStatus) ([]*types2.JitGrant, error) {
 	m.ctrl.T.Helper()

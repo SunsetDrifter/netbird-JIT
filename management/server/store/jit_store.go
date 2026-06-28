@@ -163,6 +163,21 @@ func (s *SqlStore) ListPendingJitGrantsExpiringBefore(ctx context.Context, thres
 	return grants, nil
 }
 
+// ListFailedJitGrants returns all failed grants across all accounts. It is used
+// by the global expiry sweeper to retry grants whose membership apply failed at
+// approval time. No accountID filter — the sweep is intentionally cross-account.
+func (s *SqlStore) ListFailedJitGrants(ctx context.Context) ([]*types.JitGrant, error) {
+	var grants []*types.JitGrant
+	result := s.db.WithContext(ctx).
+		Where("status = ?", types.GrantStatusFailed).
+		Find(&grants)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to list failed JIT grants: %v", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to list failed JIT grants")
+	}
+	return grants, nil
+}
+
 // ActiveGrantUserIDsForPolicy returns the requester_user_ids of all active grants for a policy.
 func (s *SqlStore) ActiveGrantUserIDsForPolicy(ctx context.Context, accountID, policyID string) ([]string, error) {
 	var userIDs []string
