@@ -60,10 +60,11 @@ type grantCanceller interface {
 // through to the store and the provisioner, so a caller can never reach another
 // account's policies.
 type Manager struct {
-	store  Store
-	prov   provisioner
-	events EventEmitter
-	grants grantCanceller
+	store   Store
+	prov    provisioner
+	events  EventEmitter
+	account accountOps
+	grants  grantCanceller
 
 	// marker prefixes every JIT-owned NetBird object name so the hidden-object
 	// filter can identify and hide them.
@@ -72,25 +73,42 @@ type Manager struct {
 	// defaultPendingTTL is applied to a created policy when the caller does not
 	// specify one (mirrors the sidecar's JIT_PENDING_TTL_MINUTES default).
 	defaultPendingTTL int
+
+	// allowSelfApproval, when true, lets an approver approve their own request.
+	// Off by default (mirrors the sidecar's allowSelfApproval default of false);
+	// wired from config in Task 9.
+	allowSelfApproval bool
 }
 
-// NewManager wires the JIT manager. grants must be a non-nil grantCanceller:
-// DeletePolicy calls TerminateGrantsForPolicy on it and will panic on nil.
-// Task 9 wires the real implementation; tests use fakeGrantCanceller.
+// NewManager wires the JIT manager.
+//
+// account provides the system-authorized membership primitive + settings read
+// the grant service needs (Task 9 passes account.Manager).
+//
+// grants is the delete-cascade dependency DeletePolicy calls. The Manager now
+// implements grantCanceller itself (TerminateGrantsForPolicy), so passing nil
+// self-wires the manager as its own canceller — the production path. Tests may
+// inject a fake grantCanceller to assert the cascade in isolation.
 func NewManager(
 	store Store,
 	prov provisioner,
 	events EventEmitter,
+	account accountOps,
 	grants grantCanceller,
 	marker string,
 	defaultPendingTTL int,
 ) *Manager {
-	return &Manager{
+	m := &Manager{
 		store:             store,
 		prov:              prov,
 		events:            events,
+		account:           account,
 		grants:            grants,
 		marker:            marker,
 		defaultPendingTTL: defaultPendingTTL,
 	}
+	if m.grants == nil {
+		m.grants = m // self-wire: the manager is its own grant canceller
+	}
+	return m
 }

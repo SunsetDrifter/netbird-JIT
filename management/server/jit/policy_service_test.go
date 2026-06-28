@@ -3,6 +3,7 @@ package jit_test
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -24,6 +25,8 @@ import (
 // behaviour. Each grant method records that it was called so future tests can
 // assert wiring without re-deriving the fake.
 type fakeStore struct {
+	mu sync.Mutex // guards grants for the -race concurrent-extend test
+
 	policies map[string]*types.JitPolicy // policyID → policy
 	grants   map[string]*types.JitGrant  // grantID → grant
 
@@ -53,11 +56,15 @@ func newFakeStore() *fakeStore {
 	}
 }
 
+// record appends to the call log. Callers MUST hold f.mu (every store method
+// below takes it), so record stays lock-free to avoid re-entrant locking.
 func (f *fakeStore) record(name string) { f.calls = append(f.calls, name) }
 
 // --- JIT policy methods (exercised) ---
 
 func (f *fakeStore) SaveJitPolicy(_ context.Context, policy *types.JitPolicy) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.record("SaveJitPolicy")
 	f.saveCallCount++
 	if f.saveErr != nil {
@@ -73,6 +80,8 @@ func (f *fakeStore) SaveJitPolicy(_ context.Context, policy *types.JitPolicy) er
 }
 
 func (f *fakeStore) GetJitPolicyByID(_ context.Context, accountID, policyID string) (*types.JitPolicy, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.record("GetJitPolicyByID")
 	p, ok := f.policies[policyID]
 	if !ok || p.AccountID != accountID {
@@ -83,6 +92,8 @@ func (f *fakeStore) GetJitPolicyByID(_ context.Context, accountID, policyID stri
 }
 
 func (f *fakeStore) ListJitPolicies(_ context.Context, accountID string) ([]*types.JitPolicy, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.record("ListJitPolicies")
 	out := make([]*types.JitPolicy, 0, len(f.policies))
 	for _, p := range f.policies {
@@ -95,6 +106,8 @@ func (f *fakeStore) ListJitPolicies(_ context.Context, accountID string) ([]*typ
 }
 
 func (f *fakeStore) DeleteJitPolicy(_ context.Context, accountID, policyID string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.record("DeleteJitPolicy")
 	if f.onDeletePolicy != nil {
 		f.onDeletePolicy()
@@ -110,9 +123,17 @@ func (f *fakeStore) DeleteJitPolicy(_ context.Context, accountID, policyID strin
 	return nil
 }
 
-// --- JIT grant methods (minimal; Task 7 extends) ---
+// --- JIT grant methods (functional; exercised by Task 7) ---
+//
+// These are map-backed and concurrency-safe so the grant-service tests can
+// drive the full lifecycle and the compare-and-set atomicity of
+// TransitionJitGrantStatus. A package-level mutex serializes all access (the
+// grant service issues no concurrent reads on the same fake outside the
+// CAS-claim tests, but the lock keeps -race clean there).
 
 func (f *fakeStore) CreateJitGrant(_ context.Context, grant *types.JitGrant) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.record("CreateJitGrant")
 	clone := *grant
 	f.grants[grant.ID] = &clone
@@ -120,6 +141,8 @@ func (f *fakeStore) CreateJitGrant(_ context.Context, grant *types.JitGrant) err
 }
 
 func (f *fakeStore) GetJitGrantByID(_ context.Context, accountID, grantID string) (*types.JitGrant, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.record("GetJitGrantByID")
 	g, ok := f.grants[grantID]
 	if !ok || g.AccountID != accountID {
@@ -129,39 +152,158 @@ func (f *fakeStore) GetJitGrantByID(_ context.Context, accountID, grantID string
 	return &clone, nil
 }
 
-func (f *fakeStore) ListJitGrantsByRequester(_ context.Context, _, _ string) ([]*types.JitGrant, error) {
+func (f *fakeStore) ListJitGrantsByRequester(_ context.Context, accountID, requesterUserID string) ([]*types.JitGrant, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.record("ListJitGrantsByRequester")
-	return nil, nil
+	var out []*types.JitGrant
+	for _, g := range f.grants {
+		if g.AccountID == accountID && g.RequesterUserID == requesterUserID {
+			clone := *g
+			out = append(out, &clone)
+		}
+	}
+	return out, nil
 }
 
-func (f *fakeStore) ListJitGrantsByAccount(_ context.Context, _ string, _ types.GrantStatus) ([]*types.JitGrant, error) {
+func (f *fakeStore) ListJitGrantsByAccount(_ context.Context, accountID string, grantStatus types.GrantStatus) ([]*types.JitGrant, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.record("ListJitGrantsByAccount")
-	return nil, nil
+	var out []*types.JitGrant
+	for _, g := range f.grants {
+		if g.AccountID != accountID {
+			continue
+		}
+		if grantStatus != "" && g.Status != grantStatus {
+			continue
+		}
+		clone := *g
+		out = append(out, &clone)
+	}
+	return out, nil
 }
 
-func (f *fakeStore) GetActiveJitGrantFor(_ context.Context, _, _, _ string) (*types.JitGrant, error) {
+func (f *fakeStore) GetActiveJitGrantFor(_ context.Context, accountID, requesterUserID, policyID string) (*types.JitGrant, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.record("GetActiveJitGrantFor")
+	for _, g := range f.grants {
+		if g.AccountID == accountID && g.RequesterUserID == requesterUserID &&
+			g.PolicyID == policyID && g.Status == types.GrantStatusActive {
+			clone := *g
+			return &clone, nil
+		}
+	}
 	return nil, nil
 }
 
-func (f *fakeStore) ListActiveJitGrantsExpiringBefore(_ context.Context, _ time.Time) ([]*types.JitGrant, error) {
+func (f *fakeStore) ListActiveJitGrantsExpiringBefore(_ context.Context, threshold time.Time) ([]*types.JitGrant, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.record("ListActiveJitGrantsExpiringBefore")
-	return nil, nil
+	var out []*types.JitGrant
+	for _, g := range f.grants {
+		if g.Status == types.GrantStatusActive && g.ExpiresAt != nil && g.ExpiresAt.Before(threshold) {
+			clone := *g
+			out = append(out, &clone)
+		}
+	}
+	return out, nil
 }
 
-func (f *fakeStore) ListPendingJitGrantsExpiringBefore(_ context.Context, _ time.Time) ([]*types.JitGrant, error) {
+func (f *fakeStore) ListPendingJitGrantsExpiringBefore(_ context.Context, threshold time.Time) ([]*types.JitGrant, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.record("ListPendingJitGrantsExpiringBefore")
-	return nil, nil
+	var out []*types.JitGrant
+	for _, g := range f.grants {
+		if g.Status == types.GrantStatusPending && g.PendingExpiresAt != nil && g.PendingExpiresAt.Before(threshold) {
+			clone := *g
+			out = append(out, &clone)
+		}
+	}
+	return out, nil
 }
 
-func (f *fakeStore) ActiveGrantUserIDsForPolicy(_ context.Context, _, _ string) ([]string, error) {
+func (f *fakeStore) ActiveGrantUserIDsForPolicy(_ context.Context, accountID, policyID string) ([]string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.record("ActiveGrantUserIDsForPolicy")
-	return nil, nil
+	var out []string
+	for _, g := range f.grants {
+		if g.AccountID == accountID && g.PolicyID == policyID && g.Status == types.GrantStatusActive {
+			out = append(out, g.RequesterUserID)
+		}
+	}
+	return out, nil
 }
 
-func (f *fakeStore) TransitionJitGrantStatus(_ context.Context, _ string, _, _ types.GrantStatus, _ types.JitGrantPatch) (*types.JitGrant, bool, error) {
+// TransitionJitGrantStatus is a compare-and-set: it only mutates the row when
+// its current status equals from, mirroring the SqlStore WHERE clause. Patch
+// fields are applied to the stored copy (non-nil only).
+func (f *fakeStore) TransitionJitGrantStatus(_ context.Context, grantID string, from, to types.GrantStatus, patch types.JitGrantPatch) (*types.JitGrant, bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.record("TransitionJitGrantStatus")
-	return nil, false, nil
+	g, ok := f.grants[grantID]
+	if !ok {
+		return nil, false, errNotFound
+	}
+	if g.Status != from {
+		return nil, false, nil // lost the CAS race
+	}
+	updated := *g
+	updated.Status = to
+	applyGrantPatch(&updated, patch)
+	f.grants[grantID] = &updated
+	clone := updated
+	return &clone, true, nil
+}
+
+// applyGrantPatch copies the non-nil patch fields onto the grant (test mirror
+// of buildJitGrantUpdates in the SqlStore).
+func applyGrantPatch(g *types.JitGrant, patch types.JitGrantPatch) {
+	if patch.ApproverUserID != nil {
+		g.ApproverUserID = patch.ApproverUserID
+	}
+	if patch.ApproverEmail != nil {
+		g.ApproverEmail = patch.ApproverEmail
+	}
+	if patch.DenialReason != nil {
+		g.DenialReason = patch.DenialReason
+	}
+	if patch.RevokeReason != nil {
+		g.RevokeReason = patch.RevokeReason
+	}
+	if patch.DecidedAt != nil {
+		g.DecidedAt = patch.DecidedAt
+	}
+	if patch.ActivatedAt != nil {
+		g.ActivatedAt = patch.ActivatedAt
+	}
+	if patch.ExpiresAt != nil {
+		g.ExpiresAt = patch.ExpiresAt
+	}
+	if patch.RevokedAt != nil {
+		g.RevokedAt = patch.RevokedAt
+	}
+	if patch.LastError != nil {
+		g.LastError = patch.LastError
+	}
+}
+
+// allGrants returns a snapshot copy of every stored grant (for invariant
+// assertions in tests).
+func (f *fakeStore) allGrants() []*types.JitGrant {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make([]*types.JitGrant, 0, len(f.grants))
+	for _, g := range f.grants {
+		clone := *g
+		out = append(out, &clone)
+	}
+	return out
 }
 
 var errNotFound = errors.New("not found")
@@ -179,14 +321,19 @@ type storedEvent struct {
 }
 
 type fakeEvents struct {
+	mu     sync.Mutex // guards events for the -race concurrent-extend test
 	events []storedEvent
 }
 
 func (f *fakeEvents) StoreEvent(_ context.Context, initiatorID, targetID, accountID string, activityID activity.ActivityDescriber, meta map[string]any) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.events = append(f.events, storedEvent{initiatorID, targetID, accountID, activityID, meta})
 }
 
 func (f *fakeEvents) only() storedEvent {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	if len(f.events) != 1 {
 		panic("expected exactly one event")
 	}
@@ -231,7 +378,12 @@ func newTestManager(t *testing.T) (*jit.Manager, *fakeStore, *fakeProvisioner, *
 	prov := newFakeProvisioner()
 	events := &fakeEvents{}
 	grants := &fakeGrantCanceller{}
-	m := jit.NewManager(store, prov, events, grants, jit.DefaultMarker, 1440)
+	account := newFakeAccount()
+	// A non-nil fake grantCanceller is injected so the policy delete-cascade
+	// tests can assert TerminateGrantsForPolicy is invoked; when nil is passed
+	// (production / grant-service tests) the manager self-wires as its own
+	// canceller.
+	m := jit.NewManager(store, prov, events, account, grants, jit.DefaultMarker, 1440)
 	return m, store, prov, events, grants
 }
 
