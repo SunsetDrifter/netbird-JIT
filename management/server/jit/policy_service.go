@@ -90,6 +90,8 @@ func (m *Manager) CreatePolicy(
 	}
 
 	// Step 2: provision the backing group + NetBird policy; roll back on failure.
+	// ProvisionBacking rolls back its own partial state before returning an
+	// error, so the only cleanup needed here is deleting the persisted row.
 	backingGroupID, netbirdPolicyID, err := ProvisionBacking(ctx, m.prov, accountID, userID, ProvisionSpec{
 		Name:              policy.Name,
 		Description:       policy.Description,
@@ -97,16 +99,20 @@ func (m *Manager) CreatePolicy(
 		Traffic:           policy.Traffic,
 	})
 	if err != nil {
-		m.rollbackCreate(ctx, accountID, userID, policy.ID, err)
+		m.rollbackCreateRow(ctx, accountID, policy.ID, err)
 		return nil, err
 	}
 
-	// Step 3: write the backing IDs back onto the row.
+	// Step 3: write the backing IDs back onto the row. On failure the backing
+	// objects are already live, so we must deprovision them as well as delete
+	// the row — otherwise they are permanently orphaned with no row to find
+	// their IDs.
 	policy.BackingGroupID = backingGroupID
 	policy.NetbirdPolicyID = netbirdPolicyID
 	if err := m.store.SaveJitPolicy(ctx, policy); err != nil {
-		m.rollbackCreate(ctx, accountID, userID, policy.ID, err)
-		return nil, fmt.Errorf("jit: write back backing ids: %w", err)
+		writeBackErr := fmt.Errorf("jit: write back backing ids: %w", err)
+		m.rollbackCreateWithBacking(ctx, accountID, userID, policy.ID, backingGroupID, netbirdPolicyID, writeBackErr)
+		return nil, writeBackErr
 	}
 
 	// Step 4: audit.
@@ -118,15 +124,29 @@ func (m *Manager) CreatePolicy(
 	return policy, nil
 }
 
-// rollbackCreate deletes a half-created policy row after a provisioning failure
-// and best-effort tears down any backing objects that were created. It mirrors
-// the sidecar's repo.remove(draft.id) on the failure path, but additionally
-// reverses partial provisioning so a failed create leaves nothing behind.
-func (m *Manager) rollbackCreate(ctx context.Context, accountID, userID, policyID string, cause error) {
+// rollbackCreateRow deletes a persisted-but-unprovision policy row after a
+// step-2 (ProvisionBacking) failure. ProvisionBacking already rolled back its
+// own partial state before returning, so only the row needs cleaning up.
+func (m *Manager) rollbackCreateRow(ctx context.Context, accountID, policyID string, cause error) {
 	if delErr := m.store.DeleteJitPolicy(ctx, accountID, policyID); delErr != nil {
-		log.WithContext(ctx).Errorf("jit: failed to roll back policy %s after provisioning error (%v): %v", policyID, cause, delErr)
+		log.WithContext(ctx).Errorf("jit: failed to roll back policy row %s after provisioning error (%v): %v", policyID, cause, delErr)
 	} else {
 		log.WithContext(ctx).Warnf("jit: policy %s provisioning failed; rolled back row: %v", policyID, cause)
+	}
+}
+
+// rollbackCreateWithBacking is called when the step-3 write-back fails: the
+// backing group and NetBird policy are already live, so we must deprovision
+// them before deleting the row. Both cleanup steps are best-effort — errors are
+// logged but do not mask the original write-back error returned to the caller.
+func (m *Manager) rollbackCreateWithBacking(ctx context.Context, accountID, userID, policyID, backingGroupID, netbirdPolicyID string, cause error) {
+	if deprovErr := DeprovisionBacking(ctx, m.prov, accountID, userID, backingGroupID, netbirdPolicyID); deprovErr != nil {
+		log.WithContext(ctx).Errorf("jit: failed to deprovision backing objects for policy %s after write-back error (%v): %v", policyID, cause, deprovErr)
+	}
+	if delErr := m.store.DeleteJitPolicy(ctx, accountID, policyID); delErr != nil {
+		log.WithContext(ctx).Errorf("jit: failed to roll back policy row %s after write-back error (%v): %v", policyID, cause, delErr)
+	} else {
+		log.WithContext(ctx).Warnf("jit: policy %s write-back failed; rolled back row and backing objects: %v", policyID, cause)
 	}
 }
 

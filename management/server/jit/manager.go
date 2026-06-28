@@ -74,9 +74,9 @@ type Manager struct {
 	defaultPendingTTL int
 }
 
-// NewManager wires the JIT manager. grants may be supplied after construction
-// in code paths that build the grant service later; here it is passed in for
-// the policy delete-cascade.
+// NewManager wires the JIT manager. grants must be a non-nil grantCanceller:
+// DeletePolicy calls TerminateGrantsForPolicy on it and will panic on nil.
+// Task 9 wires the real implementation; tests use fakeGrantCanceller.
 func NewManager(
 	store Store,
 	prov provisioner,

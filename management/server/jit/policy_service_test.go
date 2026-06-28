@@ -31,6 +31,13 @@ type fakeStore struct {
 	saveErr   error
 	deleteErr error
 
+	// saveErrAfter, when > 0, makes SaveJitPolicy succeed for the first N calls
+	// and then return saveErrAfterErr on every subsequent call. This lets tests
+	// simulate a write-back (step-3) failure after provisioning has succeeded.
+	saveErrAfter    int
+	saveErrAfterErr error
+	saveCallCount   int
+
 	// onDeletePolicy fires inside DeleteJitPolicy so ordering tests can record
 	// when the row delete happened relative to other deps.
 	onDeletePolicy func()
@@ -52,8 +59,12 @@ func (f *fakeStore) record(name string) { f.calls = append(f.calls, name) }
 
 func (f *fakeStore) SaveJitPolicy(_ context.Context, policy *types.JitPolicy) error {
 	f.record("SaveJitPolicy")
+	f.saveCallCount++
 	if f.saveErr != nil {
 		return f.saveErr
+	}
+	if f.saveErrAfter > 0 && f.saveCallCount > f.saveErrAfter {
+		return f.saveErrAfterErr
 	}
 	// Store a copy so callers can't mutate persisted state by reference.
 	clone := *policy
@@ -333,6 +344,39 @@ func TestCreatePolicy_RollsBackRowOnProvisioningFailure(t *testing.T) {
 	// DeleteJitPolicy was invoked as part of rollback.
 	if !contains(store.calls, "DeleteJitPolicy") {
 		t.Errorf("rollback did not call DeleteJitPolicy; calls=%v", store.calls)
+	}
+}
+
+func TestCreatePolicy_RollsBackRowAndBackingOnWriteBackFailure(t *testing.T) {
+	m, store, prov, events, _ := newTestManager(t)
+
+	// The first SaveJitPolicy call (step-1 persist) must succeed; the second
+	// (step-3 write-back) must fail so provisioning has already completed.
+	store.saveErrAfter = 1
+	store.saveErrAfterErr = errors.New("db write-back boom")
+
+	_, err := m.CreatePolicy(context.Background(), testAccountID, testUserID, validCreateInput())
+	if err == nil {
+		t.Fatal("expected error when write-back fails")
+	}
+
+	// The policy row must be gone — rollback deleted it.
+	if len(store.policies) != 0 {
+		t.Errorf("expected row rolled back, found %d policies", len(store.policies))
+	}
+
+	// The backing objects (group + NetBird policy) created in step-2 must have
+	// been deprovisioned — otherwise they are permanently orphaned.
+	if prov.deleteGroupCalls != 1 {
+		t.Errorf("deleteGroupCalls = %d, want 1 (backing group must be cleaned up)", prov.deleteGroupCalls)
+	}
+	if prov.deletePolicyCalls != 1 {
+		t.Errorf("deletePolicyCalls = %d, want 1 (backing NetBird policy must be cleaned up)", prov.deletePolicyCalls)
+	}
+
+	// No JitPolicyCreated event must be emitted on failure.
+	if len(events.events) != 0 {
+		t.Errorf("expected no events on failure, got %d", len(events.events))
 	}
 }
 
