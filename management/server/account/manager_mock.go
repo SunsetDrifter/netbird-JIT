@@ -991,6 +991,21 @@ func (mr *MockManagerMockRecorder) GetPolicy(ctx, accountID, policyID, userID in
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPolicy", reflect.TypeOf((*MockManager)(nil).GetPolicy), ctx, accountID, policyID, userID)
 }
 
+// GetPolicyByID mocks base method.
+func (m *MockManager) GetPolicyByID(ctx context.Context, accountID, policyID string) (*types.Policy, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetPolicyByID", ctx, accountID, policyID)
+	ret0, _ := ret[0].(*types.Policy)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetPolicyByID indicates an expected call of GetPolicyByID.
+func (mr *MockManagerMockRecorder) GetPolicyByID(ctx, accountID, policyID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPolicyByID", reflect.TypeOf((*MockManager)(nil).GetPolicyByID), ctx, accountID, policyID)
+}
+
 // GetPostureChecks mocks base method.
 func (m *MockManager) GetPostureChecks(ctx context.Context, accountID, postureChecksID, userID string) (*posture.Checks, error) {
 	m.ctrl.T.Helper()

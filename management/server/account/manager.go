@@ -90,6 +90,10 @@ type Manager interface {
 	ApplyJitAutoGroup(ctx context.Context, accountID, userID, groupID string, add bool) error
 	GetPeerGroups(ctx context.Context, accountID, peerID string) ([]*types.Group, error)
 	GetPolicy(ctx context.Context, accountID, policyID, userID string) (*types.Policy, error)
+	// GetPolicyByID reads a policy without a permission check (system-level). JIT
+	// uses it to gate mirror-type policy availability on the source policy's
+	// state. Not exposed on a user-facing route.
+	GetPolicyByID(ctx context.Context, accountID, policyID string) (*types.Policy, error)
 	SavePolicy(ctx context.Context, accountID, userID string, policy *types.Policy, create bool) (*types.Policy, error)
 	DeletePolicy(ctx context.Context, accountID, policyID, userID string) error
 	ListPolicies(ctx context.Context, accountID, userID string) ([]*types.Policy, error)

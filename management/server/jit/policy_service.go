@@ -460,3 +460,24 @@ func (m *Manager) SourceDriftStatus(ctx context.Context, accountID, userID strin
 	}
 	return FingerprintSource(src) != p.SourceFingerprint, false
 }
+
+// sourceRequestable reports whether a policy may be requested right now. A
+// resource-based policy always can. A mirror-type policy can only be requested
+// while its source access-control policy is present AND enabled — disabling or
+// deleting the source turns the JIT policy off for requesters, so they don't
+// submit a request that can never be fulfilled. The source is read
+// system-level (the requester can't read policies themselves); a genuine read
+// error is returned so callers can fail closed.
+func (m *Manager) sourceRequestable(ctx context.Context, accountID string, p *types.JitPolicy) (bool, error) {
+	if p.SourcePolicyID == "" {
+		return true, nil
+	}
+	src, err := m.account.GetPolicyByID(ctx, accountID, p.SourcePolicyID)
+	if err != nil {
+		if isNotFound(err) {
+			return false, nil // source deleted → off for requesters
+		}
+		return false, err
+	}
+	return src.Enabled, nil // disabled source → off for requesters
+}

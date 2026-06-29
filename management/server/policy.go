@@ -31,6 +31,15 @@ func (am *DefaultAccountManager) GetPolicy(ctx context.Context, accountID, polic
 	return am.Store.GetPolicyByID(ctx, store.LockingStrengthNone, accountID, policyID)
 }
 
+// GetPolicyByID reads a policy from the store WITHOUT a permission check. It is
+// the system-level read JIT uses to gate a mirror-type policy's requester
+// availability on the source policy's state; authorization happens at the JIT
+// layer, so this deliberately skips the Policies-module permission check that
+// GetPolicy performs. Not exposed on a user-facing route.
+func (am *DefaultAccountManager) GetPolicyByID(ctx context.Context, accountID, policyID string) (*types.Policy, error) {
+	return am.Store.GetPolicyByID(ctx, store.LockingStrengthNone, accountID, policyID)
+}
+
 // SavePolicy in the store
 func (am *DefaultAccountManager) SavePolicy(ctx context.Context, accountID, userID string, policy *types.Policy, create bool) (*types.Policy, error) {
 	operation := operations.Create

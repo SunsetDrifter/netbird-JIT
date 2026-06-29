@@ -30,6 +30,12 @@ type accountOps interface {
 	// GroupsPropagationEnabled to gate approval (no point granting access that
 	// will never reach peers).
 	GetAccountSettings(ctx context.Context, accountID, userID string) (*types.Settings, error)
+	// GetPolicyByID reads a NetBird access-control policy by ID WITHOUT a
+	// permission check — a system-level read. JIT uses it to gate a mirror-type
+	// policy's requester availability on whether its source policy is still
+	// present and enabled (the requester can't read /policies themselves).
+	// Returns a NotFound status error when the policy no longer exists.
+	GetPolicyByID(ctx context.Context, accountID, policyID string) (*types.Policy, error)
 }
 
 // labelToActivity maps a lifecycle audit-action label (the value returned by
@@ -294,6 +300,15 @@ func (m *Manager) RequestAccess(
 	}
 	if !policy.Enabled {
 		return nil, status.Errorf(status.PreconditionFailed, "jit: policy %s is not available", policyID)
+	}
+	// A mirror-type policy whose source access-control policy is disabled or
+	// deleted is not requestable — fail closed rather than create a request that
+	// can never be fulfilled.
+	if requestable, err := m.sourceRequestable(ctx, accountID, policy); err != nil {
+		return nil, err
+	} else if !requestable {
+		return nil, status.Errorf(status.PreconditionFailed,
+			"jit: policy %s is not available — its source access policy is disabled or no longer exists", policyID)
 	}
 	if !IsEligible(caller, policy.RequestableBy) {
 		return nil, status.Errorf(status.PermissionDenied, "jit: you are not eligible to request this access")

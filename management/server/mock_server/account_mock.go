@@ -59,6 +59,7 @@ type MockAccountManager struct {
 	GetPeerGroupsFunc                     func(ctx context.Context, accountID, peerID string) ([]*types.Group, error)
 	DeleteRuleFunc                        func(ctx context.Context, accountID, ruleID, userID string) error
 	GetPolicyFunc                         func(ctx context.Context, accountID, policyID, userID string) (*types.Policy, error)
+	GetPolicyByIDFunc                     func(ctx context.Context, accountID, policyID string) (*types.Policy, error)
 	SavePolicyFunc                        func(ctx context.Context, accountID, userID string, policy *types.Policy, create bool) (*types.Policy, error)
 	DeletePolicyFunc                      func(ctx context.Context, accountID, policyID, userID string) error
 	ListPoliciesFunc                      func(ctx context.Context, accountID, userID string) ([]*types.Policy, error)
@@ -510,6 +511,14 @@ func (am *MockAccountManager) GetPolicy(ctx context.Context, accountID, policyID
 		return am.GetPolicyFunc(ctx, accountID, policyID, userID)
 	}
 	return nil, status.Errorf(codes.Unimplemented, "method GetPolicy is not implemented")
+}
+
+// GetPolicyByID mock implementation of GetPolicyByID from server.AccountManager interface
+func (am *MockAccountManager) GetPolicyByID(ctx context.Context, accountID, policyID string) (*types.Policy, error) {
+	if am.GetPolicyByIDFunc != nil {
+		return am.GetPolicyByIDFunc(ctx, accountID, policyID)
+	}
+	return nil, status.Errorf(codes.Unimplemented, "method GetPolicyByID is not implemented")
 }
 
 // SavePolicy mock implementation of SavePolicy from server.AccountManager interface

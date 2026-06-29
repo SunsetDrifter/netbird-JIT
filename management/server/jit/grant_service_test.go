@@ -34,11 +34,16 @@ type fakeAccount struct {
 	applyErr    error
 	settingsErr error
 
+	// sourcePolicies backs GetPolicyByID — the system-level source read JIT uses
+	// to gate mirror-type requester availability. A missing id returns NotFound.
+	sourcePolicies map[string]*types.Policy
+	getPolicyErr   error
+
 	calls []membershipCall
 }
 
 func newFakeAccount() *fakeAccount {
-	return &fakeAccount{propagation: true}
+	return &fakeAccount{propagation: true, sourcePolicies: map[string]*types.Policy{}}
 }
 
 func (f *fakeAccount) ApplyJitAutoGroup(_ context.Context, _, userID, groupID string, add bool) error {
@@ -53,6 +58,20 @@ func (f *fakeAccount) GetAccountSettings(_ context.Context, _, _ string) (*types
 		return nil, f.settingsErr
 	}
 	return &types.Settings{GroupsPropagationEnabled: f.propagation}, nil
+}
+
+func (f *fakeAccount) GetPolicyByID(_ context.Context, _, policyID string) (*types.Policy, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.getPolicyErr != nil {
+		return nil, f.getPolicyErr
+	}
+	p, ok := f.sourcePolicies[policyID]
+	if !ok {
+		return nil, status.Errorf(status.NotFound, "policy %s not found", policyID)
+	}
+	clone := *p
+	return &clone, nil
 }
 
 func (f *fakeAccount) addRemoveCalls() (adds, removes int) {
@@ -105,6 +124,108 @@ func seedGrantPolicy(t *testing.T, store *fakeStore) *types.JitPolicy {
 		t.Fatalf("seed policy: %v", err)
 	}
 	return p
+}
+
+// seedMirrorPolicy persists a mirror-type JIT policy (open eligibility) so the
+// source-availability gating can be exercised.
+func seedMirrorPolicy(t *testing.T, store *fakeStore, id, sourceID string) {
+	t.Helper()
+	p := &types.JitPolicy{
+		ID:                 id,
+		AccountID:          testAccountID,
+		Name:               "Mirror " + id,
+		SourcePolicyID:     sourceID,
+		SourcePolicyName:   "src",
+		SourceFingerprint:  "fp",
+		MaxDurationMinutes: 60,
+		RequestableBy:      types.JitRequestableBy{Mode: "all"},
+		ApproverCriteria:   types.JitApproverCriteria{Mode: "any_admin"},
+		PendingTTLMinutes:  1440,
+		BackingGroupID:     "g-" + id,
+		NetbirdPolicyID:    "np-" + id,
+		Enabled:            true,
+	}
+	if err := store.SaveJitPolicy(context.Background(), p); err != nil {
+		t.Fatalf("seed mirror policy: %v", err)
+	}
+}
+
+func containsPolicy(ps []*types.JitPolicy, id string) bool {
+	for _, p := range ps {
+		if p.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
+func TestListEligiblePolicies_HidesMirrorWhenSourceDisabledOrDeleted(t *testing.T) {
+	m, store, account, _ := newGrantTestManager(t)
+	seedMirrorPolicy(t, store, "jp-mirror", "src-1")
+	caller := jit.Caller{UserID: "u1"}
+
+	// Source missing (deleted) → hidden from requesters.
+	got, err := m.ListEligiblePolicies(context.Background(), testAccountID, caller)
+	if err != nil {
+		t.Fatalf("eligible: %v", err)
+	}
+	if containsPolicy(got, "jp-mirror") {
+		t.Error("mirror with a deleted source must be hidden from requesters")
+	}
+
+	// Source present but disabled → still hidden.
+	account.sourcePolicies["src-1"] = &types.Policy{ID: "src-1", Enabled: false}
+	got, _ = m.ListEligiblePolicies(context.Background(), testAccountID, caller)
+	if containsPolicy(got, "jp-mirror") {
+		t.Error("mirror with a disabled source must be hidden from requesters")
+	}
+
+	// Source enabled → available again.
+	account.sourcePolicies["src-1"].Enabled = true
+	got, _ = m.ListEligiblePolicies(context.Background(), testAccountID, caller)
+	if !containsPolicy(got, "jp-mirror") {
+		t.Error("mirror with an enabled source must be available to requesters")
+	}
+}
+
+func TestRequestAccess_RejectsMirrorWhenSourceDisabled(t *testing.T) {
+	m, store, account, _ := newGrantTestManager(t)
+	seedMirrorPolicy(t, store, "jp-mirror", "src-1")
+	account.sourcePolicies["src-1"] = &types.Policy{ID: "src-1", Enabled: false}
+
+	_, err := m.RequestAccess(context.Background(), testAccountID, jit.Caller{UserID: "u1"}, "jp-mirror", 30, "")
+	if err == nil {
+		t.Fatal("expected the request to be rejected while the source policy is disabled")
+	}
+}
+
+func TestListEligiblePolicies_ResourceBasedUnaffectedBySource(t *testing.T) {
+	m, store, _, _ := newGrantTestManager(t)
+	p := &types.JitPolicy{
+		ID:                 "jp-res",
+		AccountID:          testAccountID,
+		Name:               "Res",
+		TargetResourceIDs:  []string{"r1"},
+		Traffic:            types.JitTraffic{Protocol: "all"},
+		MaxDurationMinutes: 60,
+		RequestableBy:      types.JitRequestableBy{Mode: "all"},
+		ApproverCriteria:   types.JitApproverCriteria{Mode: "any_admin"},
+		PendingTTLMinutes:  1440,
+		BackingGroupID:     "g",
+		NetbirdPolicyID:    "np",
+		Enabled:            true,
+	}
+	if err := store.SaveJitPolicy(context.Background(), p); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	// No source policy seeded; a resource-based policy must never be gated on one.
+	got, err := m.ListEligiblePolicies(context.Background(), testAccountID, jit.Caller{UserID: "u1"})
+	if err != nil {
+		t.Fatalf("eligible: %v", err)
+	}
+	if !containsPolicy(got, "jp-res") {
+		t.Error("resource-based policy must be available regardless of source state")
+	}
 }
 
 var (

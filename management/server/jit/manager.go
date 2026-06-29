@@ -4,6 +4,8 @@ import (
 	"context"
 	"time"
 
+	log "github.com/sirupsen/logrus"
+
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/types"
 )
@@ -128,7 +130,17 @@ func (m *Manager) ListEligiblePolicies(ctx context.Context, accountID string, ca
 	}
 	out := make([]*types.JitPolicy, 0, len(all))
 	for _, p := range all {
-		if p.Enabled && IsEligible(caller, p.RequestableBy) {
+		if !p.Enabled || !IsEligible(caller, p.RequestableBy) {
+			continue
+		}
+		// Hide a mirror-type policy whose source access-control policy is disabled
+		// or gone, so requesters don't submit a request that can't be fulfilled.
+		requestable, err := m.sourceRequestable(ctx, accountID, p)
+		if err != nil {
+			log.WithContext(ctx).Warnf("jit: eligibility source check failed for policy %s, hiding it: %v", p.ID, err)
+			continue
+		}
+		if requestable {
 			out = append(out, p)
 		}
 	}
