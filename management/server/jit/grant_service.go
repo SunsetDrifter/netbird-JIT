@@ -394,7 +394,8 @@ func (m *Manager) ListMine(ctx context.Context, accountID string, caller Caller,
 // retires the prior active grant to superseded without dropping membership.
 //
 // Guards: the caller must satisfy the policy's approver criteria, may not
-// approve their own request (unless allowSelfApproval), and the account's group
+// approve their own request unless they are an admin/owner (or allowSelfApproval
+// is set), and the account's group
 // propagation must be enabled (no point granting access that won't reach peers
 // — checked BEFORE the claim so a propagation-off approval leaves the grant
 // pending and never touches membership). Fail-closed: a membership-apply
@@ -414,7 +415,11 @@ func (m *Manager) Approve(ctx context.Context, accountID string, caller Caller, 
 	if !CanApprove(caller, policy.ApproverCriteria) {
 		return nil, status.Errorf(status.PermissionDenied, "jit: not permitted to approve this request")
 	}
-	if !m.allowSelfApproval && grant.RequesterUserID == caller.UserID {
+	// Self-approval is a separation-of-duties control that binds only non-admin
+	// approvers. An admin/owner has full authority and may always approve their
+	// own request (and in v1 the HTTP layer admits only admins to approve at all,
+	// so blocking them would deadlock a single-admin account).
+	if !m.allowSelfApproval && !caller.IsAdmin && grant.RequesterUserID == caller.UserID {
 		return nil, status.Errorf(status.PermissionDenied, "jit: you cannot approve your own request")
 	}
 

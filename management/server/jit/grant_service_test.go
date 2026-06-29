@@ -283,22 +283,47 @@ func TestApprove_AddsGroupActivatesSetsExpiryEmitsApproved(t *testing.T) {
 	}
 }
 
-func TestApprove_SelfApprovalRejected(t *testing.T) {
+func TestApprove_AdminCanSelfApprove(t *testing.T) {
 	m, store, account, _ := newGrantTestManager(t)
 	p := seedGrantPolicy(t, store)
-	// Admin who is also the requester (and eligible).
+	// An admin/owner who is also the requester (and eligible) may approve their
+	// own request — the separation-of-duties block does not bind admins.
 	selfAdmin := jit.Caller{UserID: "adm", Email: "a@x.com", IsAdmin: true, Groups: []string{"eng"}}
 	g, _ := m.RequestAccess(ctx(), testAccountID, selfAdmin, p.ID, 60, "")
 
-	_, err := m.Approve(ctx(), testAccountID, selfAdmin, g.ID)
+	got, err := m.Approve(ctx(), testAccountID, selfAdmin, g.ID)
+	if err != nil {
+		t.Fatalf("admin self-approval should be allowed, got: %v", err)
+	}
+	if got.Status != types.GrantStatusActive {
+		t.Errorf("status = %q, want active", got.Status)
+	}
+	if adds, _ := account.addRemoveCalls(); adds != 1 {
+		t.Errorf("expected 1 membership add on approval, got %d", adds)
+	}
+}
+
+func TestApprove_NonAdminApproverCannotSelfApprove(t *testing.T) {
+	m, store, account, _ := newGrantTestManager(t)
+	// A policy whose approvers are members of "eng" (not just admins), so a
+	// non-admin can reach the self-approval guard.
+	p := seedGrantPolicy(t, store)
+	p.ApproverCriteria = types.JitApproverCriteria{Mode: "groups", GroupIDs: []string{"eng"}}
+	if err := store.SaveJitPolicy(ctx(), p); err != nil {
+		t.Fatalf("update policy: %v", err)
+	}
+	// requester is a non-admin in "eng": eligible to request AND in the approver group.
+	g, _ := m.RequestAccess(ctx(), testAccountID, requester, p.ID, 60, "")
+
+	_, err := m.Approve(ctx(), testAccountID, requester, g.ID)
 	if err == nil {
-		t.Fatal("expected self-approval to be rejected")
+		t.Fatal("expected non-admin self-approval to be rejected")
 	}
 	if !isStatusType(err, status.PermissionDenied) {
 		t.Errorf("want PermissionDenied, got %v", err)
 	}
 	if adds, _ := account.addRemoveCalls(); adds != 0 {
-		t.Error("self-approval must not touch membership")
+		t.Error("rejected self-approval must not touch membership")
 	}
 }
 
