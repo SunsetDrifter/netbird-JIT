@@ -2769,7 +2769,7 @@ type JitApproverCriteria struct {
 // JitApproverCriteriaMode "any_admin" lets any admin/owner approve; "groups" restricts to members of listed groups.
 type JitApproverCriteriaMode string
 
-// JitCreatePolicyRequest Request body for creating a JIT policy.
+// JitCreatePolicyRequest Request body for creating a JIT policy. Provide exactly one of targetResourceIds (resource-based) or sourcePolicyId (mirror an existing access-control policy).
 type JitCreatePolicyRequest struct {
 	// ApproverCriteria Defines who may approve JIT requests for a policy.
 	ApproverCriteria   JitApproverCriteria `json:"approverCriteria"`
@@ -2779,8 +2779,11 @@ type JitCreatePolicyRequest struct {
 	PendingTtlMinutes  *int                `json:"pendingTtlMinutes,omitempty"`
 
 	// RequestableBy Defines who may request access under a JIT policy.
-	RequestableBy     JitRequestableBy `json:"requestableBy"`
-	TargetResourceIds []string         `json:"targetResourceIds"`
+	RequestableBy JitRequestableBy `json:"requestableBy"`
+
+	// SourcePolicyId Mirror this NetBird access-control policy instead of listing resources. Mutually exclusive with targetResourceIds.
+	SourcePolicyId    *string   `json:"sourcePolicyId,omitempty"`
+	TargetResourceIds *[]string `json:"targetResourceIds,omitempty"`
 
 	// Traffic Network traffic specification for a JIT policy.
 	Traffic *JitTraffic `json:"traffic,omitempty"`
@@ -2800,11 +2803,17 @@ type JitDecisionReasonBody struct {
 
 // JitEligiblePolicy Trimmed policy view returned to eligible requesters.
 type JitEligiblePolicy struct {
-	Description        *string  `json:"description,omitempty"`
-	Id                 string   `json:"id"`
-	MaxDurationMinutes int      `json:"maxDurationMinutes"`
-	Name               string   `json:"name"`
-	TargetResourceIds  []string `json:"targetResourceIds"`
+	Description        *string `json:"description,omitempty"`
+	Id                 string  `json:"id"`
+	MaxDurationMinutes int     `json:"maxDurationMinutes"`
+	Name               string  `json:"name"`
+
+	// SourcePolicyId Set when this policy mirrors an access-control policy.
+	SourcePolicyId *string `json:"sourcePolicyId,omitempty"`
+
+	// SourcePolicyName The source policy's name, for display.
+	SourcePolicyName  *string  `json:"sourcePolicyName,omitempty"`
+	TargetResourceIds []string `json:"targetResourceIds"`
 }
 
 // JitExtendBody Request body for extending an active grant.
@@ -2856,8 +2865,20 @@ type JitPolicy struct {
 	PendingTtlMinutes  int                 `json:"pendingTtlMinutes"`
 
 	// RequestableBy Defines who may request access under a JIT policy.
-	RequestableBy     JitRequestableBy `json:"requestableBy"`
-	TargetResourceIds []string         `json:"targetResourceIds"`
+	RequestableBy JitRequestableBy `json:"requestableBy"`
+
+	// SourceDeleted True when the source policy no longer exists; the mirror keeps working off its last snapshot.
+	SourceDeleted *bool `json:"sourceDeleted,omitempty"`
+
+	// SourceDrifted True when the source policy changed since the last sync — re-sync to apply.
+	SourceDrifted *bool `json:"sourceDrifted,omitempty"`
+
+	// SourcePolicyId When set, this policy mirrors the named NetBird access-control policy (a one-time snapshot); empty means it is resource-based.
+	SourcePolicyId *string `json:"sourcePolicyId,omitempty"`
+
+	// SourcePolicyName The source policy's name captured at the last sync.
+	SourcePolicyName  *string  `json:"sourcePolicyName,omitempty"`
+	TargetResourceIds []string `json:"targetResourceIds"`
 
 	// Traffic Network traffic specification for a JIT policy.
 	Traffic   JitTraffic `json:"traffic"`
@@ -2899,8 +2920,11 @@ type JitUpdatePolicyRequest struct {
 	PendingTtlMinutes  *int                 `json:"pendingTtlMinutes,omitempty"`
 
 	// RequestableBy Defines who may request access under a JIT policy.
-	RequestableBy     *JitRequestableBy `json:"requestableBy,omitempty"`
-	TargetResourceIds *[]string         `json:"targetResourceIds,omitempty"`
+	RequestableBy *JitRequestableBy `json:"requestableBy,omitempty"`
+
+	// SourcePolicyId Re-point the mirror to a different access-control policy (or re-sync with the same id). Mirror-type policies only.
+	SourcePolicyId    *string   `json:"sourcePolicyId,omitempty"`
+	TargetResourceIds *[]string `json:"targetResourceIds,omitempty"`
 
 	// Traffic Network traffic specification for a JIT policy.
 	Traffic *JitTraffic `json:"traffic,omitempty"`

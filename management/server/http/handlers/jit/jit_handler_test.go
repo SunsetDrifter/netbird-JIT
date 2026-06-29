@@ -36,6 +36,7 @@ type fakeJitManager struct {
 	requestAccessFunc        func(ctx context.Context, accountID string, caller jit.Caller, policyID string, dur int, just string) (*types.JitGrant, error)
 	listMineFunc             func(ctx context.Context, accountID string, caller jit.Caller, s *types.GrantStatus) ([]*types.JitGrant, error)
 	listGrantsFunc           func(ctx context.Context, accountID string, s types.GrantStatus) ([]*types.JitGrant, error)
+	sourceDriftFunc          func(ctx context.Context, accountID, userID string, p *types.JitPolicy) (bool, bool)
 }
 
 func (f *fakeJitManager) CreatePolicy(ctx context.Context, accountID, userID string, in jit.CreateJitPolicyInput) (*types.JitPolicy, error) {
@@ -95,6 +96,12 @@ func (f *fakeJitManager) ListGrants(ctx context.Context, accountID string, s typ
 		return f.listGrantsFunc(ctx, accountID, s)
 	}
 	return nil, nil
+}
+func (f *fakeJitManager) SourceDriftStatus(ctx context.Context, accountID, userID string, p *types.JitPolicy) (bool, bool) {
+	if f.sourceDriftFunc != nil {
+		return f.sourceDriftFunc(ctx, accountID, userID, p)
+	}
+	return false, false
 }
 
 // ---------------------------------------------------------------------------
@@ -215,6 +222,78 @@ func TestCreatePolicy_AdminCanCreate(t *testing.T) {
 	assert.NotContains(t, resp, "success")
 	assert.NotContains(t, resp, "data")
 	assert.NotContains(t, resp, "error")
+}
+
+// TestCreatePolicy_MirrorType_ResponseCarriesSource verifies a policy-based
+// create forwards sourcePolicyId to the manager and the response carries the
+// source id + snapshotted name (and fresh = no drift).
+func TestCreatePolicy_MirrorType_ResponseCarriesSource(t *testing.T) {
+	created := &types.JitPolicy{
+		ID:                 "pol-m",
+		AccountID:          "acc1",
+		Name:               "DB break-glass",
+		SourcePolicyID:     "acl-1",
+		SourcePolicyName:   "Engineers → prod-db",
+		MaxDurationMinutes: 60,
+		RequestableBy:      types.JitRequestableBy{Mode: "all"},
+		ApproverCriteria:   types.JitApproverCriteria{Mode: "any_admin"},
+		Enabled:            true,
+	}
+	mgr := &fakeJitManager{
+		createPolicyFunc: func(_ context.Context, _, _ string, in jit.CreateJitPolicyInput) (*types.JitPolicy, error) {
+			assert.Equal(t, "acl-1", in.SourcePolicyID)
+			assert.Empty(t, in.TargetResourceIDs)
+			return created, nil
+		},
+	}
+	router := buildRouter(mgr, types.NewAdminUser("admin1"), true)
+	body := map[string]interface{}{
+		"name":               "DB break-glass",
+		"sourcePolicyId":     "acl-1",
+		"maxDurationMinutes": 60,
+		"requestableBy":      map[string]string{"mode": "all"},
+		"approverCriteria":   map[string]string{"mode": "any_admin"},
+	}
+	rr := doRequest(router, http.MethodPost, "/jit/policies", body, "acc1", "admin1")
+	require.Equal(t, http.StatusOK, rr.Code)
+
+	var resp map[string]interface{}
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &resp))
+	assert.Equal(t, "acl-1", resp["sourcePolicyId"])
+	assert.Equal(t, "Engineers → prod-db", resp["sourcePolicyName"])
+	assert.Equal(t, false, resp["sourceDrifted"])
+	assert.Equal(t, false, resp["sourceDeleted"])
+}
+
+// TestListPolicies_SurfacesSourceDrift verifies the admin policy list reports
+// the drift the manager computes for a mirror-type policy.
+func TestListPolicies_SurfacesSourceDrift(t *testing.T) {
+	mirror := &types.JitPolicy{
+		ID: "pol-m", AccountID: "acc1", Name: "DB break-glass",
+		SourcePolicyID: "acl-1", SourcePolicyName: "Engineers → prod-db",
+		Enabled:          true,
+		RequestableBy:    types.JitRequestableBy{Mode: "all"},
+		ApproverCriteria: types.JitApproverCriteria{Mode: "any_admin"},
+		Traffic:          types.JitTraffic{Protocol: "all"},
+	}
+	mgr := &fakeJitManager{
+		listPoliciesFunc: func(_ context.Context, _ string) ([]*types.JitPolicy, error) {
+			return []*types.JitPolicy{mirror}, nil
+		},
+		sourceDriftFunc: func(_ context.Context, _, _ string, _ *types.JitPolicy) (bool, bool) {
+			return true, false // source changed since last sync
+		},
+	}
+	router := buildRouter(mgr, types.NewAdminUser("admin1"), true)
+	rr := doRequest(router, http.MethodGet, "/jit/policies", nil, "acc1", "admin1")
+	require.Equal(t, http.StatusOK, rr.Code)
+
+	var resp []map[string]interface{}
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &resp))
+	require.Len(t, resp, 1)
+	assert.Equal(t, true, resp[0]["sourceDrifted"])
+	assert.Equal(t, false, resp[0]["sourceDeleted"])
+	assert.Equal(t, "acl-1", resp[0]["sourcePolicyId"])
 }
 
 // TestCreatePolicy_NonAdminIsForbidden verifies that a user without the Jit

@@ -30,6 +30,7 @@ type createPolicyRequest struct {
 	Name               string               `json:"name"`
 	Description        string               `json:"description"`
 	TargetResourceIds  []string             `json:"targetResourceIds"`
+	SourcePolicyId     string               `json:"sourcePolicyId,omitempty"`
 	Traffic            *trafficBody         `json:"traffic,omitempty"`
 	MaxDurationMinutes int                  `json:"maxDurationMinutes"`
 	RequestableBy      requestableByBody    `json:"requestableBy"`
@@ -41,6 +42,7 @@ type updatePolicyRequest struct {
 	Name               *string               `json:"name,omitempty"`
 	Description        *string               `json:"description,omitempty"`
 	TargetResourceIds  *[]string             `json:"targetResourceIds,omitempty"`
+	SourcePolicyId     *string               `json:"sourcePolicyId,omitempty"`
 	Traffic            *trafficBody          `json:"traffic,omitempty"`
 	MaxDurationMinutes *int                  `json:"maxDurationMinutes,omitempty"`
 	RequestableBy      *requestableByBody    `json:"requestableBy,omitempty"`
@@ -91,6 +93,10 @@ type policyResponse struct {
 	Enabled            bool                     `json:"enabled"`
 	BackingGroupId     *string                  `json:"backingGroupId"`
 	NetbirdPolicyId    *string                  `json:"netbirdPolicyId"`
+	SourcePolicyId     *string                  `json:"sourcePolicyId"`
+	SourcePolicyName   string                   `json:"sourcePolicyName,omitempty"`
+	SourceDrifted      bool                     `json:"sourceDrifted"`
+	SourceDeleted      bool                     `json:"sourceDeleted"`
 	CreatedByUserId    string                   `json:"createdByUserId"`
 	CreatedByEmail     string                   `json:"createdByEmail,omitempty"`
 	CreatedAt          string                   `json:"createdAt"`
@@ -102,6 +108,8 @@ type eligiblePolicyResponse struct {
 	Name               string   `json:"name"`
 	Description        string   `json:"description,omitempty"`
 	TargetResourceIds  []string `json:"targetResourceIds"`
+	SourcePolicyId     string   `json:"sourcePolicyId,omitempty"`
+	SourcePolicyName   string   `json:"sourcePolicyName,omitempty"`
 	MaxDurationMinutes int      `json:"maxDurationMinutes"`
 }
 
@@ -149,6 +157,7 @@ func toPatch(req updatePolicyRequest) jit.UpdateJitPolicyInput {
 		Name:               req.Name,
 		Description:        req.Description,
 		TargetResourceIDs:  req.TargetResourceIds,
+		SourcePolicyID:     req.SourcePolicyId,
 		MaxDurationMinutes: req.MaxDurationMinutes,
 		PendingTTLMinutes:  req.PendingTtlMinutes,
 		Enabled:            req.Enabled,
@@ -172,7 +181,7 @@ func toPatch(req updatePolicyRequest) jit.UpdateJitPolicyInput {
 // Conversion: domain types → response structs
 // ---------------------------------------------------------------------------
 
-func toPolicyResponse(p *types.JitPolicy) policyResponse {
+func toPolicyResponse(p *types.JitPolicy, drifted, deleted bool) policyResponse {
 	resp := policyResponse{
 		ID:          p.ID,
 		Name:        p.Name,
@@ -200,6 +209,12 @@ func toPolicyResponse(p *types.JitPolicy) policyResponse {
 	if p.NetbirdPolicyID != "" {
 		resp.NetbirdPolicyId = &p.NetbirdPolicyID
 	}
+	if p.SourcePolicyID != "" {
+		resp.SourcePolicyId = &p.SourcePolicyID
+	}
+	resp.SourcePolicyName = p.SourcePolicyName
+	resp.SourceDrifted = drifted
+	resp.SourceDeleted = deleted
 	return resp
 }
 
@@ -214,6 +229,8 @@ func toEligiblePolicyResponse(p *types.JitPolicy) eligiblePolicyResponse {
 			}
 			return p.TargetResourceIDs
 		}(),
+		SourcePolicyId:     p.SourcePolicyID,
+		SourcePolicyName:   p.SourcePolicyName,
 		MaxDurationMinutes: p.MaxDurationMinutes,
 	}
 }

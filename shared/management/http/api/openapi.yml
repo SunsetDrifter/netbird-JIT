@@ -5159,6 +5159,19 @@ components:
         netbirdPolicyId:
           type: string
           nullable: true
+        sourcePolicyId:
+          type: string
+          nullable: true
+          description: When set, this policy mirrors the named NetBird access-control policy (a one-time snapshot); empty means it is resource-based.
+        sourcePolicyName:
+          type: string
+          description: The source policy's name captured at the last sync.
+        sourceDrifted:
+          type: boolean
+          description: True when the source policy changed since the last sync — re-sync to apply.
+        sourceDeleted:
+          type: boolean
+          description: True when the source policy no longer exists; the mirror keeps working off its last snapshot.
         createdByUserId:
           type: string
         createdByEmail:
@@ -5188,6 +5201,12 @@ components:
           type: array
           items:
             type: string
+        sourcePolicyId:
+          type: string
+          description: Set when this policy mirrors an access-control policy.
+        sourcePolicyName:
+          type: string
+          description: The source policy's name, for display.
         maxDurationMinutes:
           type: integer
     JitGrant:
@@ -5250,10 +5269,9 @@ components:
           type: string
     JitCreatePolicyRequest:
       type: object
-      description: Request body for creating a JIT policy.
+      description: Request body for creating a JIT policy. Provide exactly one of targetResourceIds (resource-based) or sourcePolicyId (mirror an existing access-control policy).
       required:
         - name
-        - targetResourceIds
         - maxDurationMinutes
         - requestableBy
         - approverCriteria
@@ -5266,6 +5284,9 @@ components:
           type: array
           items:
             type: string
+        sourcePolicyId:
+          type: string
+          description: Mirror this NetBird access-control policy instead of listing resources. Mutually exclusive with targetResourceIds.
         traffic:
           $ref: '#/components/schemas/JitTraffic'
         maxDurationMinutes:
@@ -5298,6 +5319,9 @@ components:
           $ref: '#/components/schemas/JitApproverCriteria'
         pendingTtlMinutes:
           type: integer
+        sourcePolicyId:
+          type: string
+          description: Re-point the mirror to a different access-control policy (or re-sync with the same id). Mirror-type policies only.
         enabled:
           type: boolean
     JitCreateRequestBody:
