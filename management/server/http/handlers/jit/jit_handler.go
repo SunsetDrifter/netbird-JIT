@@ -12,6 +12,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
 	"github.com/netbirdio/netbird/management/server/permissions/operations"
+	"github.com/netbirdio/netbird/management/server/permissions/roles"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/management/http/util"
 	"github.com/netbirdio/netbird/shared/management/status"
@@ -100,6 +101,39 @@ func (h *handler) requireJitPerm(w http.ResponseWriter, r *http.Request, op oper
 	return accountID, userID, true
 }
 
+// requireJitAdminRead gates admin read endpoints on the caller's ROLE granting
+// modules.Jit Read, deliberately bypassing the upstream service-user Read
+// shortcut in permissions.ValidateUserPermissions (which returns true for ANY
+// service user on a Read op, even role=user). JIT read data reveals who can
+// access what, so it must follow the role: Owner/Admin/Auditor pass;
+// User/NetworkAdmin do not. Returns (accountID, ok); on false the response has
+// already been written.
+func (h *handler) requireJitAdminRead(w http.ResponseWriter, r *http.Request) (accountID string, ok bool) {
+	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return "", false
+	}
+	accountID = userAuth.AccountId
+
+	user, err := h.accountManager.GetUserFromUserAuth(r.Context(), userAuth)
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return "", false
+	}
+
+	role, exists := roles.RolesMap[user.Role]
+	if !exists {
+		util.WriteError(r.Context(), status.NewPermissionDeniedError(), w)
+		return "", false
+	}
+	if !h.permissionsManager.ValidateRoleModuleAccess(r.Context(), accountID, role, modules.Jit, operations.Read) {
+		util.WriteError(r.Context(), status.NewPermissionDeniedError(), w)
+		return "", false
+	}
+	return accountID, true
+}
+
 // requireJitPermWithCaller combines a Jit-module permission check with Caller
 // resolution. Used by admin handlers that need both the gate and the Caller
 // for downstream approver checks. Returns (accountID, caller, ok).
@@ -141,7 +175,7 @@ func (h *handler) callerFrom(w http.ResponseWriter, r *http.Request) (accountID 
 // ---------------------------------------------------------------------------
 
 func (h *handler) listPolicies(w http.ResponseWriter, r *http.Request) {
-	accountID, _, ok := h.requireJitPerm(w, r, operations.Read)
+	accountID, ok := h.requireJitAdminRead(w, r)
 	if !ok {
 		return
 	}
@@ -195,7 +229,7 @@ func (h *handler) createPolicy(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *handler) getPolicy(w http.ResponseWriter, r *http.Request) {
-	accountID, _, ok := h.requireJitPerm(w, r, operations.Read)
+	accountID, ok := h.requireJitAdminRead(w, r)
 	if !ok {
 		return
 	}
@@ -267,7 +301,7 @@ func (h *handler) listEligiblePolicies(w http.ResponseWriter, r *http.Request) {
 // ---------------------------------------------------------------------------
 
 func (h *handler) listRequests(w http.ResponseWriter, r *http.Request) {
-	accountID, _, ok := h.requireJitPerm(w, r, operations.Read)
+	accountID, ok := h.requireJitAdminRead(w, r)
 	if !ok {
 		return
 	}
@@ -382,7 +416,7 @@ func (h *handler) cancelRequest(w http.ResponseWriter, r *http.Request) {
 // ---------------------------------------------------------------------------
 
 func (h *handler) listActiveGrants(w http.ResponseWriter, r *http.Request) {
-	accountID, _, ok := h.requireJitPerm(w, r, operations.Read)
+	accountID, ok := h.requireJitAdminRead(w, r)
 	if !ok {
 		return
 	}

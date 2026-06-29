@@ -101,12 +101,21 @@ func (f *fakeJitManager) ListGrants(ctx context.Context, accountID string, s typ
 // Fake: permissions.Manager (minimal — only ValidateUserPermissions is called)
 // ---------------------------------------------------------------------------
 
-type fakePerms struct{ allow bool }
+type fakePerms struct {
+	allow bool // ValidateUserPermissions result (and ValidateRoleModuleAccess default)
+	// roleAccess, when non-nil, overrides ValidateRoleModuleAccess independently
+	// of allow — lets a test simulate the upstream service-user Read bypass
+	// (ValidateUserPermissions=true) while the caller's role denies access.
+	roleAccess *bool
+}
 
 func (f *fakePerms) ValidateUserPermissions(_ context.Context, _, _ string, _ modules.Module, _ operations.Operation) (bool, context.Context, error) {
 	return f.allow, context.Background(), nil
 }
 func (f *fakePerms) ValidateRoleModuleAccess(_ context.Context, _ string, _ roles.RolePermissions, _ modules.Module, _ operations.Operation) bool {
+	if f.roleAccess != nil {
+		return *f.roleAccess
+	}
 	return f.allow
 }
 func (f *fakePerms) ValidateAccountAccess(ctx context.Context, _ string, _ *types.User, _ bool) (context.Context, error) {
@@ -305,6 +314,28 @@ func TestCreateRequest_UserCanSubmitWithoutJitModule(t *testing.T) {
 	assert.Equal(t, "grant1", resp["id"])
 	assert.Equal(t, "pending", resp["status"])
 	assert.NotContains(t, resp, "success") // bare JSON confirmed
+}
+
+// TestAdminReads_GatedOnRoleNotServiceUserReadBypass verifies the admin read
+// endpoints consult the caller's ROLE (ValidateRoleModuleAccess), not the
+// permissive ValidateUserPermissions path. Even when ValidateUserPermissions
+// returns true — as it does upstream for ANY service user on a Read op — a role
+// that denies Jit:Read yields 403. This closes the service-user Read bypass for
+// JIT, whose data reveals who-can-access-what.
+func TestAdminReads_GatedOnRoleNotServiceUserReadBypass(t *testing.T) {
+	denyRole := false
+	am := &mock_server.MockAccountManager{
+		GetUserFromUserAuthFunc: func(_ context.Context, _ auth.UserAuth) (*types.User, error) {
+			return newRegularUser("svcuser"), nil
+		},
+	}
+	router := mux.NewRouter()
+	jithandler.AddEndpoints(&fakeJitManager{}, am, &fakePerms{allow: true, roleAccess: &denyRole}, router)
+
+	for _, path := range []string{"/jit/policies", "/jit/policies/pol1", "/jit/requests?status=pending", "/jit/grants/active"} {
+		rr := doRequest(router, http.MethodGet, path, nil, "acc1", "svcuser")
+		assert.Equal(t, http.StatusForbidden, rr.Code, "GET %s must be role-gated", path)
+	}
 }
 
 // TestListGrants_AdminWithStatusFilter verifies GET /jit/requests?status=active
