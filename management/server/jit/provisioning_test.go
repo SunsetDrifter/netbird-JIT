@@ -467,38 +467,48 @@ func TestDeprovisionBacking_PolicyDeleteError_Propagates(t *testing.T) {
 // updateBackingPolicy
 // ---------------------------------------------------------------------------
 
-func TestUpdateBackingPolicy_UpdatesExistingPolicy(t *testing.T) {
+func TestUpdateBackingPolicy_ReplacesExistingPolicy(t *testing.T) {
 	p := newFakeProvisioner(hostResource("res-1"), hostResource("res-2"))
 
-	// Pre-populate existing objects.
+	// Pre-populate existing objects. The old policy uses a distinct id ("old-pol")
+	// so it can't be confused with the fresh id the fake assigns on re-create.
 	p.groups["grp-1"] = &types.Group{ID: "grp-1", Issued: types.GroupIssuedAPI}
-	p.policies["pol-1"] = &types.Policy{ID: "pol-1"}
+	p.policies["old-pol"] = &types.Policy{ID: "old-pol", Name: jit.DefaultMarker + "old-name"}
 
 	jitPol := &types.JitPolicy{
 		ID:              "jit-pol-1",
 		AccountID:       "acc1",
 		Name:            "old-name",
 		BackingGroupID:  "grp-1",
-		NetbirdPolicyID: "pol-1",
+		NetbirdPolicyID: "old-pol",
 	}
 	spec := basicSpec("new-name", "res-1", "res-2")
 
-	err := jit.UpdateBackingPolicy(context.Background(), p, "acc1", "svc", jitPol, spec)
+	// UpdateBackingPolicy REPLACES the access policy (delete + create) because
+	// NetBird can't re-rule a policy in place, and returns the new policy ID.
+	newID, err := jit.UpdateBackingPolicy(context.Background(), p, "acc1", "svc", jitPol, spec)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-
-	if p.savePolicyCalls != 1 {
-		t.Errorf("SavePolicy called %d times, want 1", p.savePolicyCalls)
+	if newID == "" || newID == "old-pol" {
+		t.Errorf("expected a fresh backing policy id, got %q", newID)
 	}
-	// Policy in fake should be updated (create=false path).
-	pol := p.policies["pol-1"]
+	if _, ok := p.policies["old-pol"]; ok {
+		t.Error("old backing policy should have been deleted")
+	}
+	if p.deletePolicyCalls != 1 || p.savePolicyCalls != 1 {
+		t.Errorf("expected 1 delete + 1 create, got delete=%d create=%d", p.deletePolicyCalls, p.savePolicyCalls)
+	}
+	pol := p.policies[newID]
 	if pol == nil {
-		t.Fatal("policy pol-1 missing from fake store after update")
+		t.Fatalf("new backing policy %s missing from fake store", newID)
 	}
 	wantName := jit.DefaultMarker + "new-name"
 	if pol.Name != wantName {
 		t.Errorf("policy name = %q, want %q", pol.Name, wantName)
+	}
+	if len(pol.Rules) != 2 {
+		t.Errorf("expected 2 rebuilt rules, got %d", len(pol.Rules))
 	}
 }
 
@@ -508,12 +518,15 @@ func TestUpdateBackingPolicy_NoOp_WhenNotProvisioned(t *testing.T) {
 	jitPol := &types.JitPolicy{
 		// BackingGroupID and NetbirdPolicyID both empty.
 	}
-	err := jit.UpdateBackingPolicy(context.Background(), p, "acc1", "svc", jitPol, basicSpec("pol", "res-1"))
+	id, err := jit.UpdateBackingPolicy(context.Background(), p, "acc1", "svc", jitPol, basicSpec("pol", "res-1"))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if p.savePolicyCalls != 0 {
-		t.Errorf("SavePolicy should not be called for unprovisioned policy")
+	if id != "" {
+		t.Errorf("expected empty id for an unprovisioned policy, got %q", id)
+	}
+	if p.savePolicyCalls != 0 || p.deletePolicyCalls != 0 {
+		t.Errorf("no provisioner calls expected; got save=%d delete=%d", p.savePolicyCalls, p.deletePolicyCalls)
 	}
 }
 

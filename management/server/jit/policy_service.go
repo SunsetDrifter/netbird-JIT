@@ -273,19 +273,26 @@ func (m *Manager) UpdatePolicy(
 	}
 
 	if touchesBackingPolicy {
-		if err := UpdateBackingPolicy(ctx, m.prov, accountID, userID, policy, spec); err != nil {
+		// UpdateBackingPolicy replaces the access policy, so its ID changes —
+		// capture the new one to persist below.
+		newPolicyID, err := UpdateBackingPolicy(ctx, m.prov, accountID, userID, policy, spec)
+		if err != nil {
 			return nil, err
 		}
+		policy.NetbirdPolicyID = newPolicyID
 	}
 
-	// The backing policy is now in sync with the (re)pointed source, so advance
-	// the stored snapshot (name + fingerprint) — drift is measured against it.
-	// Done only after a successful rebuild (see the save above).
-	if resync {
-		policy.SourcePolicyName = source.Name
-		policy.SourceFingerprint = FingerprintSource(source)
+	// The backing policy is now rebuilt from the (re)pointed source. Persist the
+	// new backing-policy id and, on a re-sync, the refreshed source snapshot.
+	// Doing this only AFTER a successful rebuild keeps drift detectable when the
+	// rebuild fails: the stored fingerprint still reflects the last good sync.
+	if touchesBackingPolicy {
+		if resync {
+			policy.SourcePolicyName = source.Name
+			policy.SourceFingerprint = FingerprintSource(source)
+		}
 		if err := m.store.SaveJitPolicy(ctx, policy); err != nil {
-			return nil, fmt.Errorf("jit: persist source snapshot: %w", err)
+			return nil, fmt.Errorf("jit: persist backing policy id / source snapshot: %w", err)
 		}
 	}
 

@@ -345,34 +345,48 @@ func buildBackingPolicy(
 }
 
 // UpdateBackingPolicy re-syncs the NetBird access policy when a JIT policy's
-// name, resources, or traffic settings change. The backing group is not
-// renamed — only the policy rules are replaced.
+// name, resources, traffic, or source policy change. It REPLACES the access
+// policy (deletes the old one, creates a rebuilt one) rather than updating it in
+// place, and returns the new NetBird policy ID for the caller to persist.
 //
-// No-op if jitPolicy.BackingGroupID or jitPolicy.NetbirdPolicyID is empty
-// (policy not yet provisioned).
+// Why replace instead of update: NetBird's validatePolicy rejects rule IDs that
+// don't already belong to the policy on update and cannot add new rules to a
+// policy in place ("invalid rule ID"). A rebuilt rule set carries fresh IDs and
+// may have a different rule count, so an in-place SavePolicy(create=false)
+// fails. Deleting the old policy frees its "jit:" name; creating the rebuilt one
+// (create=true) accepts the fresh IDs. The backing GROUP is untouched, so
+// granted users keep their membership; only the access rules are swapped.
+//
+// Fail-closed: there is a brief window between delete and create with no backing
+// policy, during which access is denied until the new policy propagates. Re-sync
+// / policy edits are admin-initiated and infrequent, so that is acceptable.
+//
+// No-op (returns the existing ID) if jitPolicy.BackingGroupID or
+// jitPolicy.NetbirdPolicyID is empty (policy not yet provisioned).
 func UpdateBackingPolicy(
 	ctx context.Context,
 	p provisioner,
 	accountID, userID string,
 	jitPolicy *types.JitPolicy,
 	spec ProvisionSpec,
-) error {
+) (string, error) {
 	if jitPolicy.BackingGroupID == "" || jitPolicy.NetbirdPolicyID == "" {
-		return nil
+		return jitPolicy.NetbirdPolicyID, nil
 	}
 
 	policy, err := buildBackingPolicy(ctx, p, accountID, userID, jitPolicy.BackingGroupID, spec)
 	if err != nil {
-		return err
+		return "", err
 	}
-	// Preserve the existing IDs so SavePolicy performs an update, not a create.
-	policy.ID = jitPolicy.NetbirdPolicyID
-	policy.AccountID = accountID
 
-	if _, err := p.SavePolicy(ctx, accountID, userID, policy, false); err != nil {
-		return fmt.Errorf("jit: update access policy %s: %w", jitPolicy.NetbirdPolicyID, err)
+	if err := p.DeletePolicy(ctx, accountID, jitPolicy.NetbirdPolicyID, userID); err != nil && !isNotFound(err) {
+		return "", fmt.Errorf("jit: replace backing policy %s (delete): %w", jitPolicy.NetbirdPolicyID, err)
 	}
-	return nil
+	saved, err := p.SavePolicy(ctx, accountID, userID, policy, true)
+	if err != nil {
+		return "", fmt.Errorf("jit: replace backing policy (create): %w", err)
+	}
+	return saved.ID, nil
 }
 
 // DeprovisionBacking deletes the NetBird access policy and then the backing
