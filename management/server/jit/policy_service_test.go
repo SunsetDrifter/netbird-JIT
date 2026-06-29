@@ -784,3 +784,221 @@ func indexOf(ss []string, want string) int {
 	}
 	return -1
 }
+
+// ---------------------------------------------------------------------------
+// Mirror-type policies (based on an existing access-control policy)
+// ---------------------------------------------------------------------------
+
+// seedSource registers a source access-control policy in the provisioner fake
+// so the manager's GetPolicy reads it back.
+func seedSource(prov *fakeProvisioner, id, name string, rules ...*types.PolicyRule) *types.Policy {
+	p := &types.Policy{ID: id, AccountID: testAccountID, Name: name, Enabled: true, Rules: rules}
+	prov.policies[id] = p
+	return p
+}
+
+func acceptRule(dest string, ports ...string) *types.PolicyRule {
+	return &types.PolicyRule{
+		ID: "r-" + dest, Enabled: true, Action: types.PolicyTrafficActionAccept,
+		Destinations: []string{dest}, Protocol: "tcp", Ports: ports,
+	}
+}
+
+func mirrorCreateInput(sourcePolicyID string) jit.CreateJitPolicyInput {
+	return jit.CreateJitPolicyInput{
+		Name:               "mirror-pol",
+		Description:        "from policy",
+		SourcePolicyID:     sourcePolicyID,
+		MaxDurationMinutes: 60,
+		RequestableBy:      types.JitRequestableBy{Mode: "all"},
+		ApproverCriteria:   types.JitApproverCriteria{Mode: "any_admin"},
+	}
+}
+
+func TestCreatePolicy_MirrorType_SnapshotsSourceAndProvisions(t *testing.T) {
+	m, store, prov, events, _ := newTestManager(t)
+	src := seedSource(prov, "src-1", "Engineers → prod-db", acceptRule("g-db", "5432"))
+
+	out, err := m.CreatePolicy(context.Background(), testAccountID, testUserID, mirrorCreateInput("src-1"))
+	if err != nil {
+		t.Fatalf("CreatePolicy(mirror): %v", err)
+	}
+	if out.SourcePolicyID != "src-1" {
+		t.Errorf("SourcePolicyID = %q, want src-1", out.SourcePolicyID)
+	}
+	if out.SourcePolicyName != "Engineers → prod-db" {
+		t.Errorf("SourcePolicyName = %q, want the source's name", out.SourcePolicyName)
+	}
+	if out.SourceFingerprint == "" || out.SourceFingerprint != jit.FingerprintSource(src) {
+		t.Errorf("SourceFingerprint = %q, want FingerprintSource(src)", out.SourceFingerprint)
+	}
+	if len(out.TargetResourceIDs) != 0 {
+		t.Errorf("mirror-type must carry no target resources, got %v", out.TargetResourceIDs)
+	}
+	if out.BackingGroupID == "" || out.NetbirdPolicyID == "" {
+		t.Errorf("backing IDs not written back: %q/%q", out.BackingGroupID, out.NetbirdPolicyID)
+	}
+	if store.policies[out.ID].SourceFingerprint != out.SourceFingerprint {
+		t.Error("persisted row missing source fingerprint")
+	}
+	if ev := events.only(); ev.activity != activity.JitPolicyCreated {
+		t.Errorf("activity = %v, want JitPolicyCreated", ev.activity)
+	}
+}
+
+func TestCreatePolicy_RejectsBothSourceAndResources(t *testing.T) {
+	m, _, prov, _, _ := newTestManager(t)
+	seedSource(prov, "src-1", "p", acceptRule("g", "1"))
+	in := mirrorCreateInput("src-1")
+	in.TargetResourceIDs = []string{"res-1"} // both set
+	if _, err := m.CreatePolicy(context.Background(), testAccountID, testUserID, in); err == nil {
+		t.Fatal("expected error when both sourcePolicyId and targetResourceIds are set")
+	}
+}
+
+func TestCreatePolicy_RejectsNeitherSourceNorResources(t *testing.T) {
+	m, _, _, _, _ := newTestManager(t)
+	in := validCreateInput()
+	in.TargetResourceIDs = nil // neither set
+	if _, err := m.CreatePolicy(context.Background(), testAccountID, testUserID, in); err == nil {
+		t.Fatal("expected error when neither sourcePolicyId nor targetResourceIds is set")
+	}
+}
+
+func TestCreatePolicy_RejectsJitOwnedSource(t *testing.T) {
+	m, _, prov, _, _ := newTestManager(t)
+	seedSource(prov, "jit-src", jit.DefaultMarker+"some-jit-policy", acceptRule("g", "1"))
+	if _, err := m.CreatePolicy(context.Background(), testAccountID, testUserID, mirrorCreateInput("jit-src")); err == nil {
+		t.Fatal("expected error basing a JIT policy on a JIT-owned policy")
+	}
+}
+
+func TestCreatePolicy_RejectsMissingSource(t *testing.T) {
+	m, _, _, _, _ := newTestManager(t)
+	if _, err := m.CreatePolicy(context.Background(), testAccountID, testUserID, mirrorCreateInput("does-not-exist")); err == nil {
+		t.Fatal("expected error when the source policy does not exist")
+	}
+}
+
+func TestUpdatePolicy_ResyncMirror_RefreshesFingerprintAndRebuilds(t *testing.T) {
+	m, _, prov, _, _ := newTestManager(t)
+	seedSource(prov, "src-1", "src", acceptRule("g-db", "5432"))
+	created, err := m.CreatePolicy(context.Background(), testAccountID, testUserID, mirrorCreateInput("src-1"))
+	if err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	before := created.SourceFingerprint
+	saveCallsAfterCreate := prov.savePolicyCalls
+
+	// Source drifts: add a port.
+	prov.policies["src-1"].Rules[0].Ports = []string{"5432", "8080"}
+
+	srcID := "src-1"
+	out, err := m.UpdatePolicy(context.Background(), testAccountID, testUserID, created.ID, jit.UpdateJitPolicyInput{SourcePolicyID: &srcID})
+	if err != nil {
+		t.Fatalf("re-sync: %v", err)
+	}
+	if out.SourceFingerprint == before {
+		t.Error("re-sync must refresh the fingerprint to the current source")
+	}
+	if prov.savePolicyCalls != saveCallsAfterCreate+1 {
+		t.Errorf("re-sync must rebuild the backing policy once; savePolicyCalls=%d want %d", prov.savePolicyCalls, saveCallsAfterCreate+1)
+	}
+}
+
+func TestUpdatePolicy_RepointMirror_ToDifferentSource(t *testing.T) {
+	m, _, prov, _, _ := newTestManager(t)
+	seedSource(prov, "src-1", "first", acceptRule("g-a", "1"))
+	seedSource(prov, "src-2", "second", acceptRule("g-b", "2"))
+	created, err := m.CreatePolicy(context.Background(), testAccountID, testUserID, mirrorCreateInput("src-1"))
+	if err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	srcID := "src-2"
+	out, err := m.UpdatePolicy(context.Background(), testAccountID, testUserID, created.ID, jit.UpdateJitPolicyInput{SourcePolicyID: &srcID})
+	if err != nil {
+		t.Fatalf("re-point: %v", err)
+	}
+	if out.SourcePolicyID != "src-2" || out.SourcePolicyName != "second" {
+		t.Errorf("re-point got %q/%q, want src-2/second", out.SourcePolicyID, out.SourcePolicyName)
+	}
+}
+
+func TestUpdatePolicy_RejectsConvertMirrorToResource(t *testing.T) {
+	m, _, prov, _, _ := newTestManager(t)
+	seedSource(prov, "src-1", "src", acceptRule("g", "1"))
+	created, err := m.CreatePolicy(context.Background(), testAccountID, testUserID, mirrorCreateInput("src-1"))
+	if err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	res := []string{"res-9"}
+	if _, err := m.UpdatePolicy(context.Background(), testAccountID, testUserID, created.ID, jit.UpdateJitPolicyInput{TargetResourceIDs: &res}); err == nil {
+		t.Fatal("expected error setting targetResourceIds on a mirror-type policy")
+	}
+}
+
+func TestUpdatePolicy_RejectsConvertResourceToMirror(t *testing.T) {
+	m, _, _, _, _ := newTestManager(t)
+	created, err := m.CreatePolicy(context.Background(), testAccountID, testUserID, validCreateInput())
+	if err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	srcID := "src-1"
+	if _, err := m.UpdatePolicy(context.Background(), testAccountID, testUserID, created.ID, jit.UpdateJitPolicyInput{SourcePolicyID: &srcID}); err == nil {
+		t.Fatal("expected error setting sourcePolicyId on a resource-based policy")
+	}
+}
+
+func TestUpdatePolicy_MirrorRename_DoesNotRebuildBacking(t *testing.T) {
+	m, _, prov, _, _ := newTestManager(t)
+	seedSource(prov, "src-1", "src", acceptRule("g", "1"))
+	created, err := m.CreatePolicy(context.Background(), testAccountID, testUserID, mirrorCreateInput("src-1"))
+	if err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	before := prov.savePolicyCalls
+	name := "renamed"
+	if _, err := m.UpdatePolicy(context.Background(), testAccountID, testUserID, created.ID, jit.UpdateJitPolicyInput{Name: &name}); err != nil {
+		t.Fatalf("rename: %v", err)
+	}
+	if prov.savePolicyCalls != before {
+		t.Errorf("mirror rename must not rebuild the backing policy; savePolicyCalls %d→%d", before, prov.savePolicyCalls)
+	}
+}
+
+func TestSourceDriftStatus(t *testing.T) {
+	m, _, prov, _, _ := newTestManager(t)
+
+	// resource-based → never drifts.
+	res, err := m.CreatePolicy(context.Background(), testAccountID, testUserID, validCreateInput())
+	if err != nil {
+		t.Fatalf("seed resource policy: %v", err)
+	}
+	if d, del := m.SourceDriftStatus(context.Background(), testAccountID, testUserID, res); d || del {
+		t.Errorf("resource-based drift = %v/%v, want false/false", d, del)
+	}
+
+	seedSource(prov, "src-1", "src", acceptRule("g-db", "5432"))
+	mir, err := m.CreatePolicy(context.Background(), testAccountID, testUserID, mirrorCreateInput("src-1"))
+	if err != nil {
+		t.Fatalf("seed mirror policy: %v", err)
+	}
+
+	// unchanged → no drift.
+	if d, del := m.SourceDriftStatus(context.Background(), testAccountID, testUserID, mir); d || del {
+		t.Errorf("unchanged drift = %v/%v, want false/false", d, del)
+	}
+
+	// source changed → drifted.
+	prov.policies["src-1"].Rules[0].Ports = []string{"9999"}
+	if d, del := m.SourceDriftStatus(context.Background(), testAccountID, testUserID, mir); !d || del {
+		t.Errorf("changed-source drift = %v/%v, want true/false", d, del)
+	}
+
+	// source deleted → deleted.
+	delete(prov.policies, "src-1")
+	if d, del := m.SourceDriftStatus(context.Background(), testAccountID, testUserID, mir); d || !del {
+		t.Errorf("deleted-source drift = %v/%v, want false/true", d, del)
+	}
+}

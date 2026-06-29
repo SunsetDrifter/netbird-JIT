@@ -16,6 +16,11 @@ type JitManager interface {
 	GetPolicy(ctx context.Context, accountID, policyID string) (*types.JitPolicy, error)
 	ListPolicies(ctx context.Context, accountID string) ([]*types.JitPolicy, error)
 
+	// SourceDriftStatus reports, for a mirror-type policy, whether its source
+	// access-control policy was deleted or changed since the last sync. Both
+	// false for resource-based policies. Admin reads use it to flag drift.
+	SourceDriftStatus(ctx context.Context, accountID, userID string, p *types.JitPolicy) (drifted, deleted bool)
+
 	// ListEligiblePolicies returns enabled policies the caller is eligible to
 	// request (IsEligible check applied).  User self-service.
 	ListEligiblePolicies(ctx context.Context, accountID string, caller Caller) ([]*types.JitPolicy, error)
