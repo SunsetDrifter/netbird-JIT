@@ -112,6 +112,48 @@ func TestJitPolicy_RoundTrip(t *testing.T) {
 	})
 }
 
+func TestJitPolicy_SourcePolicyFields_RoundTrip(t *testing.T) {
+	runTestForAllEngines(t, "", func(t *testing.T, store Store) {
+		ctx := context.Background()
+		accountID := "account-jit-mirror-test"
+
+		// A mirror-type JIT policy: no target resources, but linked to a source
+		// access-control policy with a captured name + fingerprint snapshot.
+		policy := newTestJitPolicy(accountID)
+		policy.TargetResourceIDs = nil
+		policy.SourcePolicyID = "acl-policy-123"
+		policy.SourcePolicyName = "Engineers → prod-db"
+		policy.SourceFingerprint = "sha256:deadbeefcafe"
+
+		require.NoError(t, store.SaveJitPolicy(ctx, policy))
+
+		got, err := store.GetJitPolicyByID(ctx, accountID, policy.ID)
+		require.NoError(t, err)
+		assert.Equal(t, "acl-policy-123", got.SourcePolicyID)
+		assert.Equal(t, "Engineers → prod-db", got.SourcePolicyName)
+		assert.Equal(t, "sha256:deadbeefcafe", got.SourceFingerprint)
+
+		// Re-sync semantics: the snapshot fields can be updated in place.
+		policy.SourcePolicyName = "Engineers → prod-db (renamed)"
+		policy.SourceFingerprint = "sha256:0001"
+		require.NoError(t, store.SaveJitPolicy(ctx, policy))
+
+		got2, err := store.GetJitPolicyByID(ctx, accountID, policy.ID)
+		require.NoError(t, err)
+		assert.Equal(t, "Engineers → prod-db (renamed)", got2.SourcePolicyName)
+		assert.Equal(t, "sha256:0001", got2.SourceFingerprint)
+
+		// A resource-based policy leaves the source fields empty.
+		resourceBased := newTestJitPolicy(accountID)
+		require.NoError(t, store.SaveJitPolicy(ctx, resourceBased))
+		gotRB, err := store.GetJitPolicyByID(ctx, accountID, resourceBased.ID)
+		require.NoError(t, err)
+		assert.Empty(t, gotRB.SourcePolicyID)
+		assert.Empty(t, gotRB.SourcePolicyName)
+		assert.Empty(t, gotRB.SourceFingerprint)
+	})
+}
+
 func TestJitGrant_RoundTrip(t *testing.T) {
 	runTestForAllEngines(t, "", func(t *testing.T, store Store) {
 		ctx := context.Background()

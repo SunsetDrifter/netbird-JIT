@@ -64,6 +64,21 @@ type JitPolicy struct {
 	// (empty until provisioned).
 	NetbirdPolicyID string
 
+	// SourcePolicyID is set when this JIT policy mirrors an existing NetBird
+	// access-control policy instead of a hand-picked resource list. Empty means
+	// the policy is resource-based (custom). The mirror is a one-time snapshot —
+	// it is not kept live with the source; re-sync rebuilds it on demand.
+	SourcePolicyID string
+	// SourcePolicyName is the source policy's name captured at the last sync, so
+	// user-facing endpoints (e.g. eligible policies) can show it without a
+	// permissioned read of the source policy.
+	SourcePolicyName string
+	// SourceFingerprint is a hash of the source policy's mirror-relevant content
+	// (its enabled rules' destinations/ports/action + posture checks) captured at
+	// the last sync. Admin reads compare it against the current source to flag
+	// drift ("source changed — re-sync").
+	SourceFingerprint string
+
 	CreatedByUserID string
 	CreatedByEmail  string
 	CreatedAt       time.Time
