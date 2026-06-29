@@ -9,6 +9,7 @@ import (
 
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/types"
+	"github.com/netbirdio/netbird/shared/management/status"
 )
 
 // defaultTraffic is applied when a create request omits the traffic field:
@@ -19,9 +20,12 @@ var defaultTraffic = types.JitTraffic{Protocol: "all"}
 // sidecar's CreateJitPolicyRequest. Traffic and PendingTTLMinutes are pointers
 // so an omitted value can be distinguished from a zero value and defaulted.
 type CreateJitPolicyInput struct {
-	Name               string
-	Description        string
+	Name        string
+	Description string
+	// TargetResourceIDs (resource-based) and SourcePolicyID (mirror-type) are
+	// mutually exclusive — provide exactly one.
 	TargetResourceIDs  []string
+	SourcePolicyID     string
 	Traffic            *types.JitTraffic
 	MaxDurationMinutes int
 	RequestableBy      types.JitRequestableBy
@@ -37,6 +41,7 @@ type UpdateJitPolicyInput struct {
 	Name               *string
 	Description        *string
 	TargetResourceIDs  *[]string
+	SourcePolicyID     *string
 	Traffic            *types.JitTraffic
 	MaxDurationMinutes *int
 	RequestableBy      *types.JitRequestableBy
@@ -61,6 +66,33 @@ func (m *Manager) CreatePolicy(
 	accountID, userID string,
 	in CreateJitPolicyInput,
 ) (*types.JitPolicy, error) {
+	// A JIT policy is either policy-based (mirrors an existing access policy) or
+	// resource-based (a hand-picked resource list) — provide exactly one.
+	hasSource := in.SourcePolicyID != ""
+	hasResources := len(in.TargetResourceIDs) > 0
+	if hasSource == hasResources {
+		return nil, status.Errorf(status.InvalidArgument,
+			"jit: provide exactly one of sourcePolicyId or targetResourceIds")
+	}
+	// A mirror-type copies the source policy's traffic verbatim, so an explicit
+	// traffic field would be silently ignored — reject it (UpdatePolicy does the
+	// same).
+	if hasSource && in.Traffic != nil {
+		return nil, status.Errorf(status.InvalidArgument,
+			"jit: traffic cannot be set on a policy-based JIT policy")
+	}
+
+	// For a mirror-type, resolve + validate the source up front so a bad id
+	// fails before we persist or provision anything.
+	var source *types.Policy
+	if hasSource {
+		s, err := m.resolveSourcePolicy(ctx, accountID, userID, in.SourcePolicyID)
+		if err != nil {
+			return nil, err
+		}
+		source = s
+	}
+
 	traffic := defaultTraffic
 	if in.Traffic != nil {
 		traffic = *in.Traffic
@@ -85,6 +117,14 @@ func (m *Manager) CreatePolicy(
 		Enabled:            true,
 		CreatedByUserID:    userID,
 	}
+	// Snapshot the source's name + fingerprint for mirror-type policies so the
+	// user-facing endpoints and the drift check have them without re-reading the
+	// source under the caller's permissions.
+	if source != nil {
+		policy.SourcePolicyID = in.SourcePolicyID
+		policy.SourcePolicyName = source.Name
+		policy.SourceFingerprint = FingerprintSource(source)
+	}
 	if err := m.store.SaveJitPolicy(ctx, policy); err != nil {
 		return nil, fmt.Errorf("jit: persist policy: %w", err)
 	}
@@ -97,6 +137,7 @@ func (m *Manager) CreatePolicy(
 		Description:       policy.Description,
 		TargetResourceIDs: policy.TargetResourceIDs,
 		Traffic:           policy.Traffic,
+		SourcePolicy:      source,
 	})
 	if err != nil {
 		m.rollbackCreateRow(ctx, accountID, policy.ID, err)
@@ -164,25 +205,87 @@ func (m *Manager) UpdatePolicy(
 		return nil, err
 	}
 
-	// Determine, before mutating, whether the backing policy must be re-synced.
-	touchesBackingPolicy := patch.TargetResourceIDs != nil ||
-		patch.Traffic != nil ||
-		(patch.Name != nil && *patch.Name != policy.Name)
+	wasMirror := policy.SourcePolicyID != ""
 
+	// A JIT policy's flavor is fixed at creation. A mirror-type can be re-pointed
+	// (a new sourcePolicyId) or re-synced (the same one), but neither flavor can
+	// be converted to the other in place — delete and recreate for that.
+	switch {
+	case wasMirror && (patch.TargetResourceIDs != nil || patch.Traffic != nil):
+		return nil, status.Errorf(status.InvalidArgument,
+			"jit: cannot set targetResourceIds/traffic on a policy-based JIT policy; delete and recreate to change type")
+	case !wasMirror && patch.SourcePolicyID != nil:
+		return nil, status.Errorf(status.InvalidArgument,
+			"jit: cannot set sourcePolicyId on a resource-based JIT policy; delete and recreate to change type")
+	case patch.SourcePolicyID != nil && *patch.SourcePolicyID == "":
+		return nil, status.Errorf(status.InvalidArgument, "jit: sourcePolicyId cannot be cleared")
+	}
+
+	// patch.SourcePolicyID != nil ⇒ an explicit re-point/re-sync: resolve the
+	// (new or same) source up front so a bad id fails before we mutate anything.
+	resync := patch.SourcePolicyID != nil
+	var source *types.Policy
+	if resync {
+		s, err := m.resolveSourcePolicy(ctx, accountID, userID, *patch.SourcePolicyID)
+		if err != nil {
+			return nil, err
+		}
+		source = s
+	}
+
+	oldName := policy.Name
 	applyPatch(policy, patch)
 
+	// Persist the patch first WITHOUT advancing the source snapshot. If the
+	// backing-policy rebuild below fails, the stored SourceFingerprint still
+	// reflects the last successful sync, so drift stays detectable instead of
+	// being hidden by a fingerprint that ran ahead of the actual backing policy.
 	if err := m.store.SaveJitPolicy(ctx, policy); err != nil {
 		return nil, fmt.Errorf("jit: persist policy update: %w", err)
 	}
 
-	if touchesBackingPolicy {
-		if err := UpdateBackingPolicy(ctx, m.prov, accountID, userID, policy, ProvisionSpec{
+	// Decide whether to rebuild the backing NetBird policy, and from what.
+	//
+	// Mirror-type: rebuild only on an explicit re-sync/re-point. A JIT-policy
+	// rename alone does not rebuild it — the backing policy's name suffix is
+	// cosmetic (it stays hidden by the "jit:" prefix), and re-mirroring on a
+	// rename would silently pull in source drift.
+	//
+	// Resource-type: rebuild when resources, traffic, or the name change (the
+	// name flows into the per-resource rule names), exactly as before.
+	var (
+		spec                 ProvisionSpec
+		touchesBackingPolicy bool
+	)
+	if policy.SourcePolicyID != "" {
+		touchesBackingPolicy = resync
+		spec = ProvisionSpec{Name: policy.Name, Description: policy.Description, SourcePolicy: source}
+	} else {
+		touchesBackingPolicy = patch.TargetResourceIDs != nil ||
+			patch.Traffic != nil ||
+			(patch.Name != nil && *patch.Name != oldName)
+		spec = ProvisionSpec{
 			Name:              policy.Name,
 			Description:       policy.Description,
 			TargetResourceIDs: policy.TargetResourceIDs,
 			Traffic:           policy.Traffic,
-		}); err != nil {
+		}
+	}
+
+	if touchesBackingPolicy {
+		if err := UpdateBackingPolicy(ctx, m.prov, accountID, userID, policy, spec); err != nil {
 			return nil, err
+		}
+	}
+
+	// The backing policy is now in sync with the (re)pointed source, so advance
+	// the stored snapshot (name + fingerprint) — drift is measured against it.
+	// Done only after a successful rebuild (see the save above).
+	if resync {
+		policy.SourcePolicyName = source.Name
+		policy.SourceFingerprint = FingerprintSource(source)
+		if err := m.store.SaveJitPolicy(ctx, policy); err != nil {
+			return nil, fmt.Errorf("jit: persist source snapshot: %w", err)
 		}
 	}
 
@@ -205,6 +308,9 @@ func applyPatch(policy *types.JitPolicy, patch UpdateJitPolicyInput) {
 	}
 	if patch.TargetResourceIDs != nil {
 		policy.TargetResourceIDs = *patch.TargetResourceIDs
+	}
+	if patch.SourcePolicyID != nil {
+		policy.SourcePolicyID = *patch.SourcePolicyID
 	}
 	if patch.Traffic != nil {
 		policy.Traffic = *patch.Traffic
@@ -237,6 +343,9 @@ func changedFields(patch UpdateJitPolicyInput) []string {
 	}
 	if patch.TargetResourceIDs != nil {
 		fields = append(fields, "targetResourceIds")
+	}
+	if patch.SourcePolicyID != nil {
+		fields = append(fields, "sourcePolicyId")
 	}
 	if patch.Traffic != nil {
 		fields = append(fields, "traffic")
@@ -306,4 +415,41 @@ func (m *Manager) GetPolicy(ctx context.Context, accountID, policyID string) (*t
 // ListPolicies returns all JIT policies for an account.
 func (m *Manager) ListPolicies(ctx context.Context, accountID string) ([]*types.JitPolicy, error) {
 	return m.store.ListJitPolicies(ctx, accountID)
+}
+
+// resolveSourcePolicy fetches and validates the access-control policy a
+// mirror-type JIT policy is (re)based on. It rejects a JIT-owned policy — a JIT
+// policy must not be based on another's hidden backing policy. The not-found /
+// permission error from the account manager is surfaced as-is (the caller is
+// admin-gated upstream).
+func (m *Manager) resolveSourcePolicy(ctx context.Context, accountID, userID, sourcePolicyID string) (*types.Policy, error) {
+	src, err := m.prov.GetPolicy(ctx, accountID, sourcePolicyID, userID)
+	if err != nil {
+		return nil, err
+	}
+	if IsJitOwnedName(src.Name) {
+		return nil, status.Errorf(status.InvalidArgument,
+			"jit: policy %q is JIT-owned and cannot be used as a source", src.Name)
+	}
+	return src, nil
+}
+
+// SourceDriftStatus reports, for a mirror-type JIT policy, whether its source
+// access-control policy has been deleted, or has changed since the last sync
+// (so the dashboard can prompt a re-sync). Both false for resource-based
+// policies. userID is the (admin) caller. On a non-not-found read error it
+// reports no drift, to avoid false "source changed" alarms on a transient blip.
+func (m *Manager) SourceDriftStatus(ctx context.Context, accountID, userID string, p *types.JitPolicy) (drifted, deleted bool) {
+	if p.SourcePolicyID == "" {
+		return false, false
+	}
+	src, err := m.prov.GetPolicy(ctx, accountID, p.SourcePolicyID, userID)
+	if err != nil {
+		if isNotFound(err) {
+			return false, true
+		}
+		log.WithContext(ctx).Warnf("jit: drift check for policy %s could not read source %s: %v", p.ID, p.SourcePolicyID, err)
+		return false, false
+	}
+	return FingerprintSource(src) != p.SourceFingerprint, false
 }

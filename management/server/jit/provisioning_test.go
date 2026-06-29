@@ -32,6 +32,7 @@ type fakeProvisioner struct {
 	deleteGroupErr  error
 	deletePolicyErr error
 	getResourcesErr error
+	getPolicyErr    error
 
 	// Call counters for assertions.
 	createGroupCalls  int
@@ -128,6 +129,29 @@ func (f *fakeProvisioner) GetAllResourcesInAccount(_ context.Context, _, _ strin
 		return nil, f.getResourcesErr
 	}
 	return f.resources, nil
+}
+
+// GetPolicy looks the policy up in the same map ProvisionBacking writes to;
+// tests pre-populate source policies there. Returns a clone so callers can't
+// mutate the fake's stored copy.
+func (f *fakeProvisioner) GetPolicy(_ context.Context, _, policyID, _ string) (*types.Policy, error) {
+	if f.getPolicyErr != nil {
+		return nil, f.getPolicyErr
+	}
+	pol, ok := f.policies[policyID]
+	if !ok {
+		return nil, status.Errorf(status.NotFound, "policy %s not found", policyID)
+	}
+	// Clone at the rule level too so a caller that holds a returned policy does
+	// not observe later mutations to the fake's stored rules (mirrors how the
+	// real store hands back detached copies).
+	clone := *pol
+	clone.Rules = make([]*types.PolicyRule, len(pol.Rules))
+	for i, r := range pol.Rules {
+		rc := *r
+		clone.Rules[i] = &rc
+	}
+	return &clone, nil
 }
 
 // ---------------------------------------------------------------------------
@@ -520,4 +544,248 @@ func TestIsJitOwnedName(t *testing.T) {
 			}
 		})
 	}
+}
+
+// ---------------------------------------------------------------------------
+// provisionBacking: mirror-type (from an existing access-control policy)
+// ---------------------------------------------------------------------------
+
+// mirrorSpec returns a policy-based ProvisionSpec (SourcePolicy set, no target
+// resources).
+func mirrorSpec(name string, src *types.Policy) jit.ProvisionSpec {
+	return jit.ProvisionSpec{Name: name, Description: "mirror", SourcePolicy: src}
+}
+
+func TestProvisionBacking_FromSourcePolicy_Mirrors(t *testing.T) {
+	p := newFakeProvisioner()
+	src := &types.Policy{
+		ID:   "src-1",
+		Name: "Engineers → prod-db",
+		Rules: []*types.PolicyRule{
+			{
+				ID: "r0", Enabled: true, Action: types.PolicyTrafficActionAccept,
+				Sources:       []string{"engineers"},
+				Destinations:  []string{"g-db"},
+				Bidirectional: true,
+				Protocol:      "tcp", Ports: []string{"5432"},
+			},
+			{
+				ID: "r1", Enabled: true, Action: types.PolicyTrafficActionAccept,
+				SourceResource:      types.Resource{ID: "src-res", Type: types.ResourceTypeHost},
+				DestinationResource: types.Resource{ID: "res-x", Type: types.ResourceTypeHost},
+				Protocol:            "udp", Ports: []string{"53"},
+			},
+		},
+	}
+
+	groupID, policyID, err := jit.ProvisionBacking(context.Background(), p, "acc1", "svc", mirrorSpec("mir", src))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	pol := p.policies[policyID]
+	if pol == nil {
+		t.Fatalf("mirror policy %s not stored", policyID)
+	}
+	if pol.Name != jit.DefaultMarker+"mir" || !pol.Enabled {
+		t.Errorf("policy name/enabled = %q/%v, want %q/true", pol.Name, pol.Enabled, jit.DefaultMarker+"mir")
+	}
+	if len(pol.Rules) != 2 {
+		t.Fatalf("expected 2 mirrored rules, got %d", len(pol.Rules))
+	}
+
+	seen := map[string]struct{}{}
+	for i, r := range pol.Rules {
+		if len(r.Sources) != 1 || r.Sources[0] != groupID {
+			t.Errorf("rule[%d].Sources = %v, want [%s] (source side discarded)", i, r.Sources, groupID)
+		}
+		if r.SourceResource.ID != "" {
+			t.Errorf("rule[%d].SourceResource must be cleared, got %q", i, r.SourceResource.ID)
+		}
+		if r.Bidirectional {
+			t.Errorf("rule[%d] must be one-way", i)
+		}
+		if r.ID == "" {
+			t.Errorf("rule[%d].ID must be a fresh non-empty xid", i)
+		}
+		if _, dup := seen[r.ID]; dup {
+			t.Errorf("rule[%d].ID %q duplicated", i, r.ID)
+		}
+		seen[r.ID] = struct{}{}
+		if want := jit.DefaultMarker + "mir-" + itoa(i); r.Name != want {
+			t.Errorf("rule[%d].Name = %q, want %q", i, r.Name, want)
+		}
+	}
+
+	// rule0: group destination + tcp/5432 copied verbatim
+	if got := pol.Rules[0].Destinations; len(got) != 1 || got[0] != "g-db" {
+		t.Errorf("rule[0].Destinations = %v, want [g-db]", got)
+	}
+	if string(pol.Rules[0].Protocol) != "tcp" || len(pol.Rules[0].Ports) != 1 || pol.Rules[0].Ports[0] != "5432" {
+		t.Errorf("rule[0] traffic = %s/%v, want tcp/[5432]", pol.Rules[0].Protocol, pol.Rules[0].Ports)
+	}
+	// rule1: resource destination copied verbatim
+	if pol.Rules[1].DestinationResource.ID != "res-x" || pol.Rules[1].DestinationResource.Type != types.ResourceTypeHost {
+		t.Errorf("rule[1].DestinationResource = %+v, want res-x/host", pol.Rules[1].DestinationResource)
+	}
+}
+
+func TestProvisionBacking_FromSourcePolicy_CopiesDenyRules(t *testing.T) {
+	p := newFakeProvisioner()
+	src := &types.Policy{
+		ID: "src-1", Name: "subnet with db carve-out",
+		Rules: []*types.PolicyRule{
+			{ID: "a", Enabled: true, Action: types.PolicyTrafficActionAccept, Destinations: []string{"g-net"}, Protocol: "all"},
+			{ID: "d", Enabled: true, Action: types.PolicyTrafficActionDrop, Destinations: []string{"g-db"}, Protocol: "tcp", Ports: []string{"5432"}},
+		},
+	}
+
+	_, policyID, err := jit.ProvisionBacking(context.Background(), p, "acc1", "svc", mirrorSpec("mir", src))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	pol := p.policies[policyID]
+	if len(pol.Rules) != 2 {
+		t.Fatalf("expected accept+drop mirrored, got %d rules", len(pol.Rules))
+	}
+	var sawAccept, sawDrop bool
+	for _, r := range pol.Rules {
+		switch r.Action {
+		case types.PolicyTrafficActionAccept:
+			sawAccept = true
+		case types.PolicyTrafficActionDrop:
+			sawDrop = true
+		}
+	}
+	if !sawAccept || !sawDrop {
+		t.Errorf("deny rule not preserved: sawAccept=%v sawDrop=%v", sawAccept, sawDrop)
+	}
+}
+
+func TestProvisionBacking_FromSourcePolicy_SkipsDisabledRules(t *testing.T) {
+	p := newFakeProvisioner()
+	src := &types.Policy{
+		ID: "src-1", Name: "mixed",
+		Rules: []*types.PolicyRule{
+			{ID: "on", Enabled: true, Action: types.PolicyTrafficActionAccept, Destinations: []string{"g-a"}, Protocol: "all"},
+			{ID: "off", Enabled: false, Action: types.PolicyTrafficActionAccept, Destinations: []string{"g-b"}, Protocol: "all"},
+		},
+	}
+
+	_, policyID, err := jit.ProvisionBacking(context.Background(), p, "acc1", "svc", mirrorSpec("mir", src))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got := len(p.policies[policyID].Rules); got != 1 {
+		t.Errorf("expected only the enabled rule mirrored, got %d", got)
+	}
+}
+
+func TestProvisionBacking_FromSourcePolicy_NoEnabledRules_ErrorsAndRollsBackGroup(t *testing.T) {
+	p := newFakeProvisioner()
+	src := &types.Policy{
+		ID: "src-1", Name: "all-off",
+		Rules: []*types.PolicyRule{
+			{ID: "off", Enabled: false, Action: types.PolicyTrafficActionAccept, Destinations: []string{"g-a"}},
+		},
+	}
+
+	_, _, err := jit.ProvisionBacking(context.Background(), p, "acc1", "svc", mirrorSpec("mir", src))
+	if err == nil {
+		t.Fatal("expected error for source with no enabled rule")
+	}
+	if len(p.groups) != 0 || p.deleteGroupCalls != 1 {
+		t.Errorf("backing group must be rolled back: groups=%d deleteGroupCalls=%d", len(p.groups), p.deleteGroupCalls)
+	}
+	if p.savePolicyCalls != 0 {
+		t.Errorf("SavePolicy must not be called when there is nothing to mirror")
+	}
+}
+
+func TestProvisionBacking_FromSourcePolicy_CarriesPostureChecks(t *testing.T) {
+	p := newFakeProvisioner()
+	src := &types.Policy{
+		ID: "src-1", Name: "with-posture",
+		SourcePostureChecks: []string{"pc-1", "pc-2"},
+		Rules: []*types.PolicyRule{
+			{ID: "a", Enabled: true, Action: types.PolicyTrafficActionAccept, Destinations: []string{"g-a"}, Protocol: "all"},
+		},
+	}
+
+	_, policyID, err := jit.ProvisionBacking(context.Background(), p, "acc1", "svc", mirrorSpec("mir", src))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	got := p.policies[policyID].SourcePostureChecks
+	if len(got) != 2 || got[0] != "pc-1" || got[1] != "pc-2" {
+		t.Errorf("SourcePostureChecks = %v, want [pc-1 pc-2]", got)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// FingerprintSource
+// ---------------------------------------------------------------------------
+
+func TestFingerprintSource_IgnoresSourceSideOrderAndNames(t *testing.T) {
+	a := &types.Policy{
+		Name: "A", Enabled: true, SourcePostureChecks: []string{"pc-1"},
+		Rules: []*types.PolicyRule{
+			{ID: "r0", Name: "first", Enabled: true, Action: types.PolicyTrafficActionAccept, Sources: []string{"engineers"}, Destinations: []string{"g-db"}, Protocol: "tcp", Ports: []string{"5432"}},
+			{ID: "r1", Name: "second", Enabled: true, Action: types.PolicyTrafficActionDrop, Sources: []string{"ops"}, Destinations: []string{"g-ssh"}, Protocol: "tcp", Ports: []string{"22"}},
+		},
+	}
+	// b: rules reversed, different rule names, different sources/source-resource,
+	// policy disabled — none of which change what a mirror would grant.
+	b := &types.Policy{
+		Name: "B (renamed)", Enabled: false, SourcePostureChecks: []string{"pc-1"},
+		Rules: []*types.PolicyRule{
+			{ID: "x", Name: "other", Enabled: true, Action: types.PolicyTrafficActionDrop, Sources: []string{"sre"}, SourceResource: types.Resource{ID: "q"}, Destinations: []string{"g-ssh"}, Protocol: "tcp", Ports: []string{"22"}},
+			{ID: "y", Name: "another", Enabled: true, Action: types.PolicyTrafficActionAccept, Sources: []string{"anybody"}, Destinations: []string{"g-db"}, Protocol: "tcp", Ports: []string{"5432"}},
+		},
+	}
+	if jit.FingerprintSource(a) != jit.FingerprintSource(b) {
+		t.Error("fingerprint must be stable across source-side, order, name, and enabled-flag changes")
+	}
+}
+
+func TestFingerprintSource_ChangesOnMeaningfulEdits(t *testing.T) {
+	base := func() *types.Policy {
+		return &types.Policy{
+			Name: "base", SourcePostureChecks: []string{"pc-1"},
+			Rules: []*types.PolicyRule{
+				{ID: "r0", Enabled: true, Action: types.PolicyTrafficActionAccept, Destinations: []string{"g-db"}, Protocol: "tcp", Ports: []string{"5432"}},
+			},
+		}
+	}
+	baseFP := jit.FingerprintSource(base())
+
+	cases := map[string]func(*types.Policy){
+		"port":        func(p *types.Policy) { p.Rules[0].Ports = []string{"5433"} },
+		"destination": func(p *types.Policy) { p.Rules[0].Destinations = []string{"g-other"} },
+		"action":      func(p *types.Policy) { p.Rules[0].Action = types.PolicyTrafficActionDrop },
+		"protocol":    func(p *types.Policy) { p.Rules[0].Protocol = "udp" },
+		"posture":     func(p *types.Policy) { p.SourcePostureChecks = []string{"pc-1", "pc-2"} },
+		"newRule":     func(p *types.Policy) { p.Rules = append(p.Rules, &types.PolicyRule{ID: "r1", Enabled: true, Action: types.PolicyTrafficActionAccept, Destinations: []string{"g-x"}, Protocol: "all"}) },
+	}
+	for name, mutate := range cases {
+		t.Run(name, func(t *testing.T) {
+			p := base()
+			mutate(p)
+			if jit.FingerprintSource(p) == baseFP {
+				t.Errorf("fingerprint must change when %s changes", name)
+			}
+		})
+	}
+}
+
+func TestFingerprintSource_NilIsEmpty(t *testing.T) {
+	if jit.FingerprintSource(nil) != "" {
+		t.Error("nil policy must fingerprint to empty string")
+	}
+}
+
+// itoa is a tiny helper so the test file needs no extra import.
+func itoa(i int) string {
+	return fmt.Sprintf("%d", i)
 }

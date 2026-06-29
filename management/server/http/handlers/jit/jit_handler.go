@@ -107,32 +107,33 @@ func (h *handler) requireJitPerm(w http.ResponseWriter, r *http.Request, op oper
 // shortcut in permissions.ValidateUserPermissions (which returns true for ANY
 // service user on a Read op, even role=user). JIT read data reveals who can
 // access what, so it must follow the role: Owner/Admin/Auditor pass;
-// User/NetworkAdmin do not. Returns (accountID, ok); on false the response has
-// already been written.
-func (h *handler) requireJitAdminRead(w http.ResponseWriter, r *http.Request) (accountID string, ok bool) {
+// User/NetworkAdmin do not. Returns (accountID, userID, ok); on false the
+// response has already been written. userID is returned so read handlers can
+// compute source-policy drift (a permissioned read of the source policy).
+func (h *handler) requireJitAdminRead(w http.ResponseWriter, r *http.Request) (accountID, userID string, ok bool) {
 	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
-		return "", false
+		return "", "", false
 	}
-	accountID = userAuth.AccountId
+	accountID, userID = userAuth.AccountId, userAuth.UserId
 
 	user, err := h.accountManager.GetUserFromUserAuth(r.Context(), userAuth)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
-		return "", false
+		return "", "", false
 	}
 
 	role, exists := roles.RolesMap[user.Role]
 	if !exists {
 		util.WriteError(r.Context(), status.NewPermissionDeniedError(), w)
-		return "", false
+		return "", "", false
 	}
 	if !h.permissionsManager.ValidateRoleModuleAccess(r.Context(), accountID, role, modules.Jit, operations.Read) {
 		util.WriteError(r.Context(), status.NewPermissionDeniedError(), w)
-		return "", false
+		return "", "", false
 	}
-	return accountID, true
+	return accountID, userID, true
 }
 
 // requireJitPermWithCaller combines a Jit-module permission check with Caller
@@ -176,7 +177,7 @@ func (h *handler) callerFrom(w http.ResponseWriter, r *http.Request) (accountID 
 // ---------------------------------------------------------------------------
 
 func (h *handler) listPolicies(w http.ResponseWriter, r *http.Request) {
-	accountID, ok := h.requireJitAdminRead(w, r)
+	accountID, userID, ok := h.requireJitAdminRead(w, r)
 	if !ok {
 		return
 	}
@@ -187,7 +188,7 @@ func (h *handler) listPolicies(w http.ResponseWriter, r *http.Request) {
 	}
 	resp := make([]policyResponse, 0, len(policies))
 	for _, p := range policies {
-		resp = append(resp, toPolicyResponse(p))
+		resp = append(resp, h.policyResp(r.Context(), accountID, userID, p))
 	}
 	util.WriteJSONObject(r.Context(), w, resp)
 }
@@ -214,6 +215,7 @@ func (h *handler) createPolicy(w http.ResponseWriter, r *http.Request) {
 		RequestableBy:      toRequestableBy(req.RequestableBy),
 		ApproverCriteria:   toApproverCriteria(req.ApproverCriteria),
 	}
+	in.SourcePolicyID = req.SourcePolicyId
 	if req.Traffic != nil {
 		t := toTraffic(*req.Traffic)
 		in.Traffic = &t
@@ -226,11 +228,12 @@ func (h *handler) createPolicy(w http.ResponseWriter, r *http.Request) {
 		util.WriteError(r.Context(), err, w)
 		return
 	}
-	util.WriteJSONObject(r.Context(), w, toPolicyResponse(policy))
+	// A freshly created policy is, by definition, in sync with its source.
+	util.WriteJSONObject(r.Context(), w, toPolicyResponse(policy, false, false))
 }
 
 func (h *handler) getPolicy(w http.ResponseWriter, r *http.Request) {
-	accountID, ok := h.requireJitAdminRead(w, r)
+	accountID, userID, ok := h.requireJitAdminRead(w, r)
 	if !ok {
 		return
 	}
@@ -240,7 +243,7 @@ func (h *handler) getPolicy(w http.ResponseWriter, r *http.Request) {
 		util.WriteError(r.Context(), err, w)
 		return
 	}
-	util.WriteJSONObject(r.Context(), w, toPolicyResponse(policy))
+	util.WriteJSONObject(r.Context(), w, h.policyResp(r.Context(), accountID, userID, policy))
 }
 
 func (h *handler) updatePolicy(w http.ResponseWriter, r *http.Request) {
@@ -260,7 +263,7 @@ func (h *handler) updatePolicy(w http.ResponseWriter, r *http.Request) {
 		util.WriteError(r.Context(), err, w)
 		return
 	}
-	util.WriteJSONObject(r.Context(), w, toPolicyResponse(policy))
+	util.WriteJSONObject(r.Context(), w, h.policyResp(r.Context(), accountID, userID, policy))
 }
 
 func (h *handler) deletePolicy(w http.ResponseWriter, r *http.Request) {
@@ -302,7 +305,7 @@ func (h *handler) listEligiblePolicies(w http.ResponseWriter, r *http.Request) {
 // ---------------------------------------------------------------------------
 
 func (h *handler) listRequests(w http.ResponseWriter, r *http.Request) {
-	accountID, ok := h.requireJitAdminRead(w, r)
+	accountID, _, ok := h.requireJitAdminRead(w, r)
 	if !ok {
 		return
 	}
@@ -419,7 +422,7 @@ func (h *handler) cancelRequest(w http.ResponseWriter, r *http.Request) {
 // ---------------------------------------------------------------------------
 
 func (h *handler) listActiveGrants(w http.ResponseWriter, r *http.Request) {
-	accountID, ok := h.requireJitAdminRead(w, r)
+	accountID, _, ok := h.requireJitAdminRead(w, r)
 	if !ok {
 		return
 	}
@@ -518,6 +521,18 @@ func (h *handler) policyName(ctx context.Context, accountID, policyID string) st
 		return ""
 	}
 	return p.Name
+}
+
+// policyResp builds a policy response, computing source drift for mirror-type
+// policies (both false for resource-based). userID is the admin caller, used for
+// the permissioned read of the source policy.
+//
+// TODO: on listPolicies this is one source-policy read per mirror-type policy
+// (an N+1 on the admin list). Fine at current volumes; batch the source reads if
+// mirror-type policies proliferate.
+func (h *handler) policyResp(ctx context.Context, accountID, userID string, p *types.JitPolicy) policyResponse {
+	drifted, deleted := h.jitManager.SourceDriftStatus(ctx, accountID, userID, p)
+	return toPolicyResponse(p, drifted, deleted)
 }
 
 // decodeReason attempts to read an optional {"reason": "..."} body. Errors are
