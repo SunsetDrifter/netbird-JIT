@@ -118,3 +118,25 @@ func NewManager(
 	}
 	return m
 }
+
+// ListEligiblePolicies returns the enabled JIT policies the caller is eligible
+// to request (IsEligible filter applied). Used by the self-service endpoint.
+func (m *Manager) ListEligiblePolicies(ctx context.Context, accountID string, caller Caller) ([]*types.JitPolicy, error) {
+	all, err := m.store.ListJitPolicies(ctx, accountID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]*types.JitPolicy, 0, len(all))
+	for _, p := range all {
+		if p.Enabled && IsEligible(caller, p.RequestableBy) {
+			out = append(out, p)
+		}
+	}
+	return out, nil
+}
+
+// ListGrants returns grants for the account filtered by status ("" = all).
+// Wraps store.ListJitGrantsByAccount; used by the admin list endpoint.
+func (m *Manager) ListGrants(ctx context.Context, accountID string, status types.GrantStatus) ([]*types.JitGrant, error) {
+	return m.store.ListJitGrantsByAccount(ctx, accountID, status)
+}

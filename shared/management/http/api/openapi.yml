@@ -5069,6 +5069,264 @@ components:
           type: string
           description: A human-readable error message.
           example: "couldn't parse JSON request"
+    JitTraffic:
+      type: object
+      description: Network traffic specification for a JIT policy.
+      required:
+        - protocol
+      properties:
+        protocol:
+          type: string
+          enum: [all, tcp, udp, icmp]
+          description: Protocol to allow.
+        ports:
+          type: array
+          items:
+            type: string
+          description: Port numbers or ranges (e.g. "80", "443", "8080-8090"). Omit for all ports.
+    JitRequestableBy:
+      type: object
+      description: Defines who may request access under a JIT policy.
+      required:
+        - mode
+      properties:
+        mode:
+          type: string
+          enum: [all, groups]
+          description: '"all" admits every authenticated user; "groups" restricts to listed group IDs.'
+        groupIds:
+          type: array
+          items:
+            type: string
+          description: Required when mode is "groups".
+    JitApproverCriteria:
+      type: object
+      description: Defines who may approve JIT requests for a policy.
+      required:
+        - mode
+      properties:
+        mode:
+          type: string
+          enum: [any_admin, groups]
+          description: '"any_admin" lets any admin/owner approve; "groups" restricts to members of listed groups.'
+        groupIds:
+          type: array
+          items:
+            type: string
+          description: Required when mode is "groups".
+    JitPolicy:
+      type: object
+      description: A JIT access policy defining who may request temporary access to a set of resources.
+      required:
+        - id
+        - name
+        - targetResourceIds
+        - traffic
+        - maxDurationMinutes
+        - requestableBy
+        - approverCriteria
+        - pendingTtlMinutes
+        - enabled
+        - createdByUserId
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        targetResourceIds:
+          type: array
+          items:
+            type: string
+        traffic:
+          $ref: '#/components/schemas/JitTraffic'
+        maxDurationMinutes:
+          type: integer
+        requestableBy:
+          $ref: '#/components/schemas/JitRequestableBy'
+        approverCriteria:
+          $ref: '#/components/schemas/JitApproverCriteria'
+        pendingTtlMinutes:
+          type: integer
+        enabled:
+          type: boolean
+        backingGroupId:
+          type: string
+          nullable: true
+        netbirdPolicyId:
+          type: string
+          nullable: true
+        createdByUserId:
+          type: string
+        createdByEmail:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    JitEligiblePolicy:
+      type: object
+      description: Trimmed policy view returned to eligible requesters.
+      required:
+        - id
+        - name
+        - targetResourceIds
+        - maxDurationMinutes
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        targetResourceIds:
+          type: array
+          items:
+            type: string
+        maxDurationMinutes:
+          type: integer
+    JitGrant:
+      type: object
+      description: A JIT request/grant lifecycle row.
+      required:
+        - id
+        - policyId
+        - requesterUserId
+        - requestedDurationMinutes
+        - status
+        - requestedAt
+      properties:
+        id:
+          type: string
+        policyId:
+          type: string
+        policyName:
+          type: string
+        supersedesGrantId:
+          type: string
+        requesterUserId:
+          type: string
+        requesterEmail:
+          type: string
+        requestedDurationMinutes:
+          type: integer
+        justification:
+          type: string
+        status:
+          type: string
+          enum: [pending, approved, active, expired, denied, revoked, cancelled, superseded, failed]
+        approverUserId:
+          type: string
+        approverEmail:
+          type: string
+        denialReason:
+          type: string
+        revokeReason:
+          type: string
+        requestedAt:
+          type: string
+          format: date-time
+        pendingExpiresAt:
+          type: string
+          format: date-time
+        decidedAt:
+          type: string
+          format: date-time
+        activatedAt:
+          type: string
+          format: date-time
+        expiresAt:
+          type: string
+          format: date-time
+        revokedAt:
+          type: string
+          format: date-time
+        lastError:
+          type: string
+    JitCreatePolicyRequest:
+      type: object
+      description: Request body for creating a JIT policy.
+      required:
+        - name
+        - targetResourceIds
+        - maxDurationMinutes
+        - requestableBy
+        - approverCriteria
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        targetResourceIds:
+          type: array
+          items:
+            type: string
+        traffic:
+          $ref: '#/components/schemas/JitTraffic'
+        maxDurationMinutes:
+          type: integer
+        requestableBy:
+          $ref: '#/components/schemas/JitRequestableBy'
+        approverCriteria:
+          $ref: '#/components/schemas/JitApproverCriteria'
+        pendingTtlMinutes:
+          type: integer
+    JitUpdatePolicyRequest:
+      type: object
+      description: Request body for updating a JIT policy (all fields optional).
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        targetResourceIds:
+          type: array
+          items:
+            type: string
+        traffic:
+          $ref: '#/components/schemas/JitTraffic'
+        maxDurationMinutes:
+          type: integer
+        requestableBy:
+          $ref: '#/components/schemas/JitRequestableBy'
+        approverCriteria:
+          $ref: '#/components/schemas/JitApproverCriteria'
+        pendingTtlMinutes:
+          type: integer
+        enabled:
+          type: boolean
+    JitCreateRequestBody:
+      type: object
+      description: Request body for submitting a JIT access request.
+      required:
+        - policyId
+        - durationMinutes
+      properties:
+        policyId:
+          type: string
+        durationMinutes:
+          type: integer
+        justification:
+          type: string
+    JitDecisionReasonBody:
+      type: object
+      description: Optional reason body for deny/revoke operations.
+      properties:
+        reason:
+          type: string
+    JitExtendBody:
+      type: object
+      description: Request body for extending an active grant.
+      required:
+        - durationMinutes
+      properties:
+        durationMinutes:
+          type: integer
   responses:
     not_found:
       description: Resource not found
@@ -12068,3 +12326,362 @@ paths:
           "$ref": "#/components/responses/not_found"
         '500':
           "$ref": "#/components/responses/internal_error"
+  /api/jit/policies:
+    get:
+      tags: [JIT]
+      summary: List JIT Policies
+      description: Returns all JIT access policies for the account. Admin only.
+      operationId: listJitPolicies
+      responses:
+        '200':
+          description: List of JIT policies.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/JitPolicy'
+        '401': {"$ref": "#/components/responses/requires_authentication"}
+        '403': {"$ref": "#/components/responses/forbidden"}
+        '500': {"$ref": "#/components/responses/internal_error"}
+    post:
+      tags: [JIT]
+      summary: Create JIT Policy
+      description: Creates a new JIT access policy. Admin only.
+      operationId: createJitPolicy
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/JitCreatePolicyRequest'
+      responses:
+        '200':
+          description: Created JIT policy.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JitPolicy'
+        '400': {"$ref": "#/components/responses/bad_request"}
+        '401': {"$ref": "#/components/responses/requires_authentication"}
+        '403': {"$ref": "#/components/responses/forbidden"}
+        '500': {"$ref": "#/components/responses/internal_error"}
+  /api/jit/policies/eligible:
+    get:
+      tags: [JIT]
+      summary: List Eligible JIT Policies
+      description: Returns the JIT policies the calling user is eligible to request.
+      operationId: listEligibleJitPolicies
+      responses:
+        '200':
+          description: List of eligible JIT policies.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/JitEligiblePolicy'
+        '401': {"$ref": "#/components/responses/requires_authentication"}
+        '500': {"$ref": "#/components/responses/internal_error"}
+  /api/jit/policies/{policyId}:
+    parameters:
+      - in: path
+        name: policyId
+        required: true
+        schema:
+          type: string
+    get:
+      tags: [JIT]
+      summary: Get JIT Policy
+      description: Returns a single JIT policy by ID. Admin only.
+      operationId: getJitPolicy
+      responses:
+        '200':
+          description: JIT policy.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JitPolicy'
+        '401': {"$ref": "#/components/responses/requires_authentication"}
+        '403': {"$ref": "#/components/responses/forbidden"}
+        '404': {"$ref": "#/components/responses/not_found"}
+        '500': {"$ref": "#/components/responses/internal_error"}
+    put:
+      tags: [JIT]
+      summary: Update JIT Policy
+      description: Partially updates a JIT policy. Admin only.
+      operationId: updateJitPolicy
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/JitUpdatePolicyRequest'
+      responses:
+        '200':
+          description: Updated JIT policy.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JitPolicy'
+        '400': {"$ref": "#/components/responses/bad_request"}
+        '401': {"$ref": "#/components/responses/requires_authentication"}
+        '403': {"$ref": "#/components/responses/forbidden"}
+        '404': {"$ref": "#/components/responses/not_found"}
+        '500': {"$ref": "#/components/responses/internal_error"}
+    delete:
+      tags: [JIT]
+      summary: Delete JIT Policy
+      description: Deletes a JIT policy and cascades to active grants. Admin only.
+      operationId: deleteJitPolicy
+      responses:
+        '200':
+          description: Policy deleted.
+          content:
+            application/json:
+              schema:
+                type: object
+                example: {}
+        '401': {"$ref": "#/components/responses/requires_authentication"}
+        '403': {"$ref": "#/components/responses/forbidden"}
+        '404': {"$ref": "#/components/responses/not_found"}
+        '500': {"$ref": "#/components/responses/internal_error"}
+  /api/jit/requests:
+    get:
+      tags: [JIT]
+      summary: List JIT Requests
+      description: Lists all JIT grants for the account, optionally filtered by status. Admin only.
+      operationId: listJitRequests
+      parameters:
+        - in: query
+          name: status
+          required: false
+          schema:
+            type: string
+            enum: [pending, approved, active, expired, denied, revoked, cancelled, superseded, failed]
+      responses:
+        '200':
+          description: List of JIT grants.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/JitGrant'
+        '401': {"$ref": "#/components/responses/requires_authentication"}
+        '403': {"$ref": "#/components/responses/forbidden"}
+        '500': {"$ref": "#/components/responses/internal_error"}
+    post:
+      tags: [JIT]
+      summary: Submit JIT Access Request
+      description: Submits a new JIT access request. User self-service.
+      operationId: createJitRequest
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/JitCreateRequestBody'
+      responses:
+        '200':
+          description: Created JIT grant.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JitGrant'
+        '400': {"$ref": "#/components/responses/bad_request"}
+        '401': {"$ref": "#/components/responses/requires_authentication"}
+        '403': {"$ref": "#/components/responses/forbidden"}
+        '500': {"$ref": "#/components/responses/internal_error"}
+  /api/jit/requests/mine:
+    get:
+      tags: [JIT]
+      summary: List My JIT Requests
+      description: Returns the calling user's own JIT grants. User self-service.
+      operationId: listMyJitRequests
+      responses:
+        '200':
+          description: List of caller's JIT grants.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/JitGrant'
+        '401': {"$ref": "#/components/responses/requires_authentication"}
+        '500': {"$ref": "#/components/responses/internal_error"}
+  /api/jit/requests/{grantId}/approve:
+    parameters:
+      - in: path
+        name: grantId
+        required: true
+        schema:
+          type: string
+    post:
+      tags: [JIT]
+      summary: Approve JIT Request
+      description: Approves a pending JIT request and activates the grant. Admin only.
+      operationId: approveJitRequest
+      responses:
+        '200':
+          description: Approved and activated JIT grant.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JitGrant'
+        '401': {"$ref": "#/components/responses/requires_authentication"}
+        '403': {"$ref": "#/components/responses/forbidden"}
+        '404': {"$ref": "#/components/responses/not_found"}
+        '500': {"$ref": "#/components/responses/internal_error"}
+  /api/jit/requests/{grantId}/deny:
+    parameters:
+      - in: path
+        name: grantId
+        required: true
+        schema:
+          type: string
+    post:
+      tags: [JIT]
+      summary: Deny JIT Request
+      description: Denies a pending JIT request. Admin only.
+      operationId: denyJitRequest
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/JitDecisionReasonBody'
+      responses:
+        '200':
+          description: Denied JIT grant.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JitGrant'
+        '401': {"$ref": "#/components/responses/requires_authentication"}
+        '403': {"$ref": "#/components/responses/forbidden"}
+        '404': {"$ref": "#/components/responses/not_found"}
+        '500': {"$ref": "#/components/responses/internal_error"}
+  /api/jit/requests/{grantId}/cancel:
+    parameters:
+      - in: path
+        name: grantId
+        required: true
+        schema:
+          type: string
+    post:
+      tags: [JIT]
+      summary: Cancel JIT Request
+      description: Cancels the caller's own pending JIT request. User self-service.
+      operationId: cancelJitRequest
+      responses:
+        '200':
+          description: Cancelled JIT grant.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JitGrant'
+        '401': {"$ref": "#/components/responses/requires_authentication"}
+        '403': {"$ref": "#/components/responses/forbidden"}
+        '404': {"$ref": "#/components/responses/not_found"}
+        '500': {"$ref": "#/components/responses/internal_error"}
+  /api/jit/grants/active:
+    get:
+      tags: [JIT]
+      summary: List Active JIT Grants
+      description: Lists all currently active JIT grants. Admin only.
+      operationId: listActiveJitGrants
+      responses:
+        '200':
+          description: List of active JIT grants.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/JitGrant'
+        '401': {"$ref": "#/components/responses/requires_authentication"}
+        '403': {"$ref": "#/components/responses/forbidden"}
+        '500': {"$ref": "#/components/responses/internal_error"}
+  /api/jit/grants/{grantId}/revoke:
+    parameters:
+      - in: path
+        name: grantId
+        required: true
+        schema:
+          type: string
+    post:
+      tags: [JIT]
+      summary: Revoke JIT Grant
+      description: Revokes an active JIT grant. Admin only.
+      operationId: revokeJitGrant
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/JitDecisionReasonBody'
+      responses:
+        '200':
+          description: Revoked JIT grant.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JitGrant'
+        '401': {"$ref": "#/components/responses/requires_authentication"}
+        '403': {"$ref": "#/components/responses/forbidden"}
+        '404': {"$ref": "#/components/responses/not_found"}
+        '500': {"$ref": "#/components/responses/internal_error"}
+  /api/jit/grants/{grantId}/extend:
+    parameters:
+      - in: path
+        name: grantId
+        required: true
+        schema:
+          type: string
+    post:
+      tags: [JIT]
+      summary: Extend JIT Grant
+      description: Extends an active JIT grant by creating a renewal. Admin only.
+      operationId: extendJitGrant
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/JitExtendBody'
+      responses:
+        '200':
+          description: New (renewal) JIT grant.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JitGrant'
+        '400': {"$ref": "#/components/responses/bad_request"}
+        '401': {"$ref": "#/components/responses/requires_authentication"}
+        '403': {"$ref": "#/components/responses/forbidden"}
+        '404': {"$ref": "#/components/responses/not_found"}
+        '500': {"$ref": "#/components/responses/internal_error"}
+  /api/jit/grants/{grantId}/end:
+    parameters:
+      - in: path
+        name: grantId
+        required: true
+        schema:
+          type: string
+    post:
+      tags: [JIT]
+      summary: End JIT Grant Early
+      description: Lets the requester end their own active grant early. User self-service.
+      operationId: endJitGrant
+      responses:
+        '200':
+          description: Ended JIT grant.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JitGrant'
+        '401': {"$ref": "#/components/responses/requires_authentication"}
+        '403': {"$ref": "#/components/responses/forbidden"}
+        '404': {"$ref": "#/components/responses/not_found"}
+        '500': {"$ref": "#/components/responses/internal_error"}
