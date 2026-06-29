@@ -526,6 +526,10 @@ func (h *handler) policyName(ctx context.Context, accountID, policyID string) st
 // policyResp builds a policy response, computing source drift for mirror-type
 // policies (both false for resource-based). userID is the admin caller, used for
 // the permissioned read of the source policy.
+//
+// TODO: on listPolicies this is one source-policy read per mirror-type policy
+// (an N+1 on the admin list). Fine at current volumes; batch the source reads if
+// mirror-type policies proliferate.
 func (h *handler) policyResp(ctx context.Context, accountID, userID string, p *types.JitPolicy) policyResponse {
 	drifted, deleted := h.jitManager.SourceDriftStatus(ctx, accountID, userID, p)
 	return toPolicyResponse(p, drifted, deleted)

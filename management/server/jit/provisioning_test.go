@@ -142,7 +142,15 @@ func (f *fakeProvisioner) GetPolicy(_ context.Context, _, policyID, _ string) (*
 	if !ok {
 		return nil, status.Errorf(status.NotFound, "policy %s not found", policyID)
 	}
+	// Clone at the rule level too so a caller that holds a returned policy does
+	// not observe later mutations to the fake's stored rules (mirrors how the
+	// real store hands back detached copies).
 	clone := *pol
+	clone.Rules = make([]*types.PolicyRule, len(pol.Rules))
+	for i, r := range pol.Rules {
+		rc := *r
+		clone.Rules[i] = &rc
+	}
 	return &clone, nil
 }
 

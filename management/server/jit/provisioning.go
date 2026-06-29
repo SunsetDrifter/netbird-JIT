@@ -236,6 +236,10 @@ func buildPolicyFromSource(marker, backingGroupID string, spec ProvisionSpec) (*
 // discards or controls itself — so only a change that would alter what a mirror
 // grants flags drift ("source changed — re-sync"). A mirror-type JIT policy
 // stores this at sync time; admin reads compare it against the live source.
+//
+// SSH authorization (AuthorizedGroups/AuthorizedUser) is also excluded, matching
+// buildPolicyFromSource: JIT mirrors network-access rules, not SSH user
+// authorization, so changes to those fields neither mirror nor flag drift.
 func FingerprintSource(p *types.Policy) string {
 	if p == nil {
 		return ""

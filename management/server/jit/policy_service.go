@@ -74,6 +74,13 @@ func (m *Manager) CreatePolicy(
 		return nil, status.Errorf(status.InvalidArgument,
 			"jit: provide exactly one of sourcePolicyId or targetResourceIds")
 	}
+	// A mirror-type copies the source policy's traffic verbatim, so an explicit
+	// traffic field would be silently ignored — reject it (UpdatePolicy does the
+	// same).
+	if hasSource && in.Traffic != nil {
+		return nil, status.Errorf(status.InvalidArgument,
+			"jit: traffic cannot be set on a policy-based JIT policy")
+	}
 
 	// For a mirror-type, resolve + validate the source up front so a bad id
 	// fails before we persist or provision anything.
@@ -229,12 +236,10 @@ func (m *Manager) UpdatePolicy(
 	oldName := policy.Name
 	applyPatch(policy, patch)
 
-	// Refresh the source snapshot (name + fingerprint) on a re-point/re-sync.
-	if resync {
-		policy.SourcePolicyName = source.Name
-		policy.SourceFingerprint = FingerprintSource(source)
-	}
-
+	// Persist the patch first WITHOUT advancing the source snapshot. If the
+	// backing-policy rebuild below fails, the stored SourceFingerprint still
+	// reflects the last successful sync, so drift stays detectable instead of
+	// being hidden by a fingerprint that ran ahead of the actual backing policy.
 	if err := m.store.SaveJitPolicy(ctx, policy); err != nil {
 		return nil, fmt.Errorf("jit: persist policy update: %w", err)
 	}
@@ -270,6 +275,17 @@ func (m *Manager) UpdatePolicy(
 	if touchesBackingPolicy {
 		if err := UpdateBackingPolicy(ctx, m.prov, accountID, userID, policy, spec); err != nil {
 			return nil, err
+		}
+	}
+
+	// The backing policy is now in sync with the (re)pointed source, so advance
+	// the stored snapshot (name + fingerprint) — drift is measured against it.
+	// Done only after a successful rebuild (see the save above).
+	if resync {
+		policy.SourcePolicyName = source.Name
+		policy.SourceFingerprint = FingerprintSource(source)
+		if err := m.store.SaveJitPolicy(ctx, policy); err != nil {
+			return nil, fmt.Errorf("jit: persist source snapshot: %w", err)
 		}
 	}
 

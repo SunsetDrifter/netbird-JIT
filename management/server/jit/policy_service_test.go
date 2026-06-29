@@ -1002,3 +1002,38 @@ func TestSourceDriftStatus(t *testing.T) {
 		t.Errorf("deleted-source drift = %v/%v, want false/true", d, del)
 	}
 }
+
+func TestCreatePolicy_MirrorRejectsTraffic(t *testing.T) {
+	m, _, prov, _, _ := newTestManager(t)
+	seedSource(prov, "src-1", "src", acceptRule("g", "1"))
+	in := mirrorCreateInput("src-1")
+	in.Traffic = &types.JitTraffic{Protocol: "tcp", Ports: []string{"22"}}
+	if _, err := m.CreatePolicy(context.Background(), testAccountID, testUserID, in); err == nil {
+		t.Fatal("expected error setting traffic on a mirror-type policy (it would be silently ignored)")
+	}
+}
+
+func TestUpdatePolicy_ResyncMirror_BackingFailureKeepsDriftDetectable(t *testing.T) {
+	m, store, prov, _, _ := newTestManager(t)
+	seedSource(prov, "src-1", "src", acceptRule("g-db", "5432"))
+	created, err := m.CreatePolicy(context.Background(), testAccountID, testUserID, mirrorCreateInput("src-1"))
+	if err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	origFP := created.SourceFingerprint
+
+	// Source drifts, and the backing-policy rebuild will fail.
+	prov.policies["src-1"].Rules[0].Ports = []string{"9999"}
+	prov.savePolicyErr = errors.New("netbird unavailable")
+
+	srcID := "src-1"
+	if _, err := m.UpdatePolicy(context.Background(), testAccountID, testUserID, created.ID, jit.UpdateJitPolicyInput{SourcePolicyID: &srcID}); err == nil {
+		t.Fatal("expected error when the backing-policy rebuild fails")
+	}
+	// The stored fingerprint must NOT have advanced — otherwise the next drift
+	// check would match the live source despite the stale backing policy, hiding
+	// the failure.
+	if store.policies[created.ID].SourceFingerprint != origFP {
+		t.Error("fingerprint advanced despite backing rebuild failure — drift would be silently hidden")
+	}
+}
