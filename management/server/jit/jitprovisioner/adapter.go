@@ -26,6 +26,7 @@ type groupAndPolicyOps interface {
 	DeleteGroup(ctx context.Context, accountID, userID, groupID string) error
 	SavePolicy(ctx context.Context, accountID, userID string, policy *types.Policy, create bool) (*types.Policy, error)
 	DeletePolicy(ctx context.Context, accountID, policyID, userID string) error
+	GetPolicy(ctx context.Context, accountID, policyID, userID string) (*types.Policy, error)
 }
 
 // resourceLookup is the slice of the network-resources manager the JIT
@@ -73,6 +74,13 @@ func (a *Adapter) SavePolicy(ctx context.Context, accountID, userID string, poli
 // DeletePolicy delegates to the account manager.
 func (a *Adapter) DeletePolicy(ctx context.Context, accountID, policyID, userID string) error {
 	return a.account.DeletePolicy(ctx, accountID, policyID, userID)
+}
+
+// GetPolicy delegates to the account manager so JIT can read the source policy
+// a mirror-type JIT policy is based on. The account manager runs its own
+// permission check against userID.
+func (a *Adapter) GetPolicy(ctx context.Context, accountID, policyID, userID string) (*types.Policy, error) {
+	return a.account.GetPolicy(ctx, accountID, policyID, userID)
 }
 
 // GetAllResourcesInAccount delegates to the network-resources manager so the JIT
