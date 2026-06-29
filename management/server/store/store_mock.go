@@ -81,6 +81,21 @@ func (mr *MockStoreMockRecorder) AcquireGlobalLock(ctx interface{}) *gomock.Call
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AcquireGlobalLock", reflect.TypeOf((*MockStore)(nil).AcquireGlobalLock), ctx)
 }
 
+// ActiveGrantUserIDsForPolicy mocks base method.
+func (m *MockStore) ActiveGrantUserIDsForPolicy(ctx context.Context, accountID, policyID string) ([]string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ActiveGrantUserIDsForPolicy", ctx, accountID, policyID)
+	ret0, _ := ret[0].([]string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ActiveGrantUserIDsForPolicy indicates an expected call of ActiveGrantUserIDsForPolicy.
+func (mr *MockStoreMockRecorder) ActiveGrantUserIDsForPolicy(ctx, accountID, policyID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ActiveGrantUserIDsForPolicy", reflect.TypeOf((*MockStore)(nil).ActiveGrantUserIDsForPolicy), ctx, accountID, policyID)
+}
+
 // AddPeerToAccount mocks base method.
 func (m *MockStore) AddPeerToAccount(ctx context.Context, peer *peer.Peer) error {
 	m.ctrl.T.Helper()
@@ -310,6 +325,20 @@ func (mr *MockStoreMockRecorder) CreateGroups(ctx, accountID, groups interface{}
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateGroups", reflect.TypeOf((*MockStore)(nil).CreateGroups), ctx, accountID, groups)
 }
 
+// CreateJitGrant mocks base method.
+func (m *MockStore) CreateJitGrant(ctx context.Context, grant *types2.JitGrant) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateJitGrant", ctx, grant)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// CreateJitGrant indicates an expected call of CreateJitGrant.
+func (mr *MockStoreMockRecorder) CreateJitGrant(ctx, grant interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateJitGrant", reflect.TypeOf((*MockStore)(nil).CreateJitGrant), ctx, grant)
+}
+
 // CreateNetworkRouter mocks base method.
 func (m *MockStore) CreateNetworkRouter(ctx context.Context, router *types0.NetworkRouter) error {
 	m.ctrl.T.Helper()
@@ -476,6 +505,20 @@ func (m *MockStore) DeleteHashedPAT2TokenIDIndex(hashedToken string) error {
 func (mr *MockStoreMockRecorder) DeleteHashedPAT2TokenIDIndex(hashedToken interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteHashedPAT2TokenIDIndex", reflect.TypeOf((*MockStore)(nil).DeleteHashedPAT2TokenIDIndex), hashedToken)
+}
+
+// DeleteJitPolicy mocks base method.
+func (m *MockStore) DeleteJitPolicy(ctx context.Context, accountID, policyID string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteJitPolicy", ctx, accountID, policyID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteJitPolicy indicates an expected call of DeleteJitPolicy.
+func (mr *MockStoreMockRecorder) DeleteJitPolicy(ctx, accountID, policyID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteJitPolicy", reflect.TypeOf((*MockStore)(nil).DeleteJitPolicy), ctx, accountID, policyID)
 }
 
 // DeleteNameServerGroup mocks base method.
@@ -1330,6 +1373,21 @@ func (mr *MockStoreMockRecorder) GetAccountsCounter(ctx interface{}) *gomock.Cal
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAccountsCounter", reflect.TypeOf((*MockStore)(nil).GetAccountsCounter), ctx)
 }
 
+// GetActiveJitGrantFor mocks base method.
+func (m *MockStore) GetActiveJitGrantFor(ctx context.Context, accountID, requesterUserID, policyID string) (*types2.JitGrant, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetActiveJitGrantFor", ctx, accountID, requesterUserID, policyID)
+	ret0, _ := ret[0].(*types2.JitGrant)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetActiveJitGrantFor indicates an expected call of GetActiveJitGrantFor.
+func (mr *MockStoreMockRecorder) GetActiveJitGrantFor(ctx, accountID, requesterUserID, policyID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetActiveJitGrantFor", reflect.TypeOf((*MockStore)(nil).GetActiveJitGrantFor), ctx, accountID, requesterUserID, policyID)
+}
+
 // GetActiveProxyClusterAddresses mocks base method.
 func (m *MockStore) GetActiveProxyClusterAddresses(ctx context.Context) ([]string, error) {
 	m.ctrl.T.Helper()
@@ -1521,6 +1579,21 @@ func (mr *MockStoreMockRecorder) GetDNSRecordByID(ctx, lockStrength, accountID, 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDNSRecordByID", reflect.TypeOf((*MockStore)(nil).GetDNSRecordByID), ctx, lockStrength, accountID, zoneID, recordID)
 }
 
+// GetEmbeddedProxyPeerIDsByCluster mocks base method.
+func (m *MockStore) GetEmbeddedProxyPeerIDsByCluster(ctx context.Context, accountID string) (map[string][]string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetEmbeddedProxyPeerIDsByCluster", ctx, accountID)
+	ret0, _ := ret[0].(map[string][]string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetEmbeddedProxyPeerIDsByCluster indicates an expected call of GetEmbeddedProxyPeerIDsByCluster.
+func (mr *MockStoreMockRecorder) GetEmbeddedProxyPeerIDsByCluster(ctx, accountID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetEmbeddedProxyPeerIDsByCluster", reflect.TypeOf((*MockStore)(nil).GetEmbeddedProxyPeerIDsByCluster), ctx, accountID)
+}
+
 // GetExpiredEphemeralServices mocks base method.
 func (m *MockStore) GetExpiredEphemeralServices(ctx context.Context, ttl time.Duration, limit int) ([]*service.Service, error) {
 	m.ctrl.T.Helper()
@@ -1566,6 +1639,21 @@ func (mr *MockStoreMockRecorder) GetGroupByName(ctx, lockStrength, accountID, gr
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetGroupByName", reflect.TypeOf((*MockStore)(nil).GetGroupByName), ctx, lockStrength, accountID, groupName)
 }
 
+// GetGroupIDsByPeerIDs mocks base method.
+func (m *MockStore) GetGroupIDsByPeerIDs(ctx context.Context, accountID string, peerIDs []string) ([]string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetGroupIDsByPeerIDs", ctx, accountID, peerIDs)
+	ret0, _ := ret[0].([]string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetGroupIDsByPeerIDs indicates an expected call of GetGroupIDsByPeerIDs.
+func (mr *MockStoreMockRecorder) GetGroupIDsByPeerIDs(ctx, accountID, peerIDs interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetGroupIDsByPeerIDs", reflect.TypeOf((*MockStore)(nil).GetGroupIDsByPeerIDs), ctx, accountID, peerIDs)
+}
+
 // GetGroupsByIDs mocks base method.
 func (m *MockStore) GetGroupsByIDs(ctx context.Context, lockStrength LockingStrength, accountID string, groupIDs []string) (map[string]*types2.Group, error) {
 	m.ctrl.T.Helper()
@@ -1593,6 +1681,36 @@ func (m *MockStore) GetInstallationID() string {
 func (mr *MockStoreMockRecorder) GetInstallationID() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetInstallationID", reflect.TypeOf((*MockStore)(nil).GetInstallationID))
+}
+
+// GetJitGrantByID mocks base method.
+func (m *MockStore) GetJitGrantByID(ctx context.Context, accountID, grantID string) (*types2.JitGrant, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetJitGrantByID", ctx, accountID, grantID)
+	ret0, _ := ret[0].(*types2.JitGrant)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetJitGrantByID indicates an expected call of GetJitGrantByID.
+func (mr *MockStoreMockRecorder) GetJitGrantByID(ctx, accountID, grantID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetJitGrantByID", reflect.TypeOf((*MockStore)(nil).GetJitGrantByID), ctx, accountID, grantID)
+}
+
+// GetJitPolicyByID mocks base method.
+func (m *MockStore) GetJitPolicyByID(ctx context.Context, accountID, policyID string) (*types2.JitPolicy, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetJitPolicyByID", ctx, accountID, policyID)
+	ret0, _ := ret[0].(*types2.JitPolicy)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetJitPolicyByID indicates an expected call of GetJitPolicyByID.
+func (mr *MockStoreMockRecorder) GetJitPolicyByID(ctx, accountID, policyID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetJitPolicyByID", reflect.TypeOf((*MockStore)(nil).GetJitPolicyByID), ctx, accountID, policyID)
 }
 
 // GetNameServerGroupByID mocks base method.
@@ -1850,6 +1968,21 @@ func (mr *MockStoreMockRecorder) GetPeerIDByKey(ctx, lockStrength, key interface
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPeerIDByKey", reflect.TypeOf((*MockStore)(nil).GetPeerIDByKey), ctx, lockStrength, key)
 }
 
+// GetPeerIDsByGroups mocks base method.
+func (m *MockStore) GetPeerIDsByGroups(ctx context.Context, accountID string, groupIDs []string) ([]string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetPeerIDsByGroups", ctx, accountID, groupIDs)
+	ret0, _ := ret[0].([]string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetPeerIDsByGroups indicates an expected call of GetPeerIDsByGroups.
+func (mr *MockStoreMockRecorder) GetPeerIDsByGroups(ctx, accountID, groupIDs interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPeerIDsByGroups", reflect.TypeOf((*MockStore)(nil).GetPeerIDsByGroups), ctx, accountID, groupIDs)
+}
+
 // GetPeerIdByLabel mocks base method.
 func (m *MockStore) GetPeerIdByLabel(ctx context.Context, lockStrength LockingStrength, accountID, hostname string) (string, error) {
 	m.ctrl.T.Helper()
@@ -1923,51 +2056,6 @@ func (m *MockStore) GetPeersByGroupIDs(ctx context.Context, accountID string, gr
 func (mr *MockStoreMockRecorder) GetPeersByGroupIDs(ctx, accountID, groupIDs interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPeersByGroupIDs", reflect.TypeOf((*MockStore)(nil).GetPeersByGroupIDs), ctx, accountID, groupIDs)
-}
-
-// GetPeerIDsByGroups mocks base method.
-func (m *MockStore) GetPeerIDsByGroups(ctx context.Context, accountID string, groupIDs []string) ([]string, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetPeerIDsByGroups", ctx, accountID, groupIDs)
-	ret0, _ := ret[0].([]string)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// GetPeerIDsByGroups indicates an expected call of GetPeerIDsByGroups.
-func (mr *MockStoreMockRecorder) GetPeerIDsByGroups(ctx, accountID, groupIDs interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPeerIDsByGroups", reflect.TypeOf((*MockStore)(nil).GetPeerIDsByGroups), ctx, accountID, groupIDs)
-}
-
-// GetGroupIDsByPeerIDs mocks base method.
-func (m *MockStore) GetGroupIDsByPeerIDs(ctx context.Context, accountID string, peerIDs []string) ([]string, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetGroupIDsByPeerIDs", ctx, accountID, peerIDs)
-	ret0, _ := ret[0].([]string)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// GetGroupIDsByPeerIDs indicates an expected call of GetGroupIDsByPeerIDs.
-func (mr *MockStoreMockRecorder) GetGroupIDsByPeerIDs(ctx, accountID, peerIDs interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetGroupIDsByPeerIDs", reflect.TypeOf((*MockStore)(nil).GetGroupIDsByPeerIDs), ctx, accountID, peerIDs)
-}
-
-// GetEmbeddedProxyPeerIDsByCluster mocks base method.
-func (m *MockStore) GetEmbeddedProxyPeerIDsByCluster(ctx context.Context, accountID string) (map[string][]string, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetEmbeddedProxyPeerIDsByCluster", ctx, accountID)
-	ret0, _ := ret[0].(map[string][]string)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// GetEmbeddedProxyPeerIDsByCluster indicates an expected call of GetEmbeddedProxyPeerIDsByCluster.
-func (mr *MockStoreMockRecorder) GetEmbeddedProxyPeerIDsByCluster(ctx, accountID interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetEmbeddedProxyPeerIDsByCluster", reflect.TypeOf((*MockStore)(nil).GetEmbeddedProxyPeerIDsByCluster), ctx, accountID)
 }
 
 // GetPeersByIDs mocks base method.
@@ -2628,6 +2716,21 @@ func (mr *MockStoreMockRecorder) IsProxyAccessTokenValid(ctx, tokenID interface{
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IsProxyAccessTokenValid", reflect.TypeOf((*MockStore)(nil).IsProxyAccessTokenValid), ctx, tokenID)
 }
 
+// ListActiveJitGrantsExpiringBefore mocks base method.
+func (m *MockStore) ListActiveJitGrantsExpiringBefore(ctx context.Context, threshold time.Time) ([]*types2.JitGrant, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListActiveJitGrantsExpiringBefore", ctx, threshold)
+	ret0, _ := ret[0].([]*types2.JitGrant)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListActiveJitGrantsExpiringBefore indicates an expected call of ListActiveJitGrantsExpiringBefore.
+func (mr *MockStoreMockRecorder) ListActiveJitGrantsExpiringBefore(ctx, threshold interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListActiveJitGrantsExpiringBefore", reflect.TypeOf((*MockStore)(nil).ListActiveJitGrantsExpiringBefore), ctx, threshold)
+}
+
 // ListCustomDomains mocks base method.
 func (m *MockStore) ListCustomDomains(ctx context.Context, accountID string) ([]*domain.Domain, error) {
 	m.ctrl.T.Helper()
@@ -2656,6 +2759,81 @@ func (m *MockStore) ListFreeDomains(ctx context.Context, accountID string) ([]st
 func (mr *MockStoreMockRecorder) ListFreeDomains(ctx, accountID interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListFreeDomains", reflect.TypeOf((*MockStore)(nil).ListFreeDomains), ctx, accountID)
+}
+
+// ListFailedJitGrants mocks base method.
+func (m *MockStore) ListFailedJitGrants(ctx context.Context) ([]*types2.JitGrant, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListFailedJitGrants", ctx)
+	ret0, _ := ret[0].([]*types2.JitGrant)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListFailedJitGrants indicates an expected call of ListFailedJitGrants.
+func (mr *MockStoreMockRecorder) ListFailedJitGrants(ctx interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListFailedJitGrants", reflect.TypeOf((*MockStore)(nil).ListFailedJitGrants), ctx)
+}
+
+// ListJitGrantsByAccount mocks base method.
+func (m *MockStore) ListJitGrantsByAccount(ctx context.Context, accountID string, status types2.GrantStatus) ([]*types2.JitGrant, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListJitGrantsByAccount", ctx, accountID, status)
+	ret0, _ := ret[0].([]*types2.JitGrant)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListJitGrantsByAccount indicates an expected call of ListJitGrantsByAccount.
+func (mr *MockStoreMockRecorder) ListJitGrantsByAccount(ctx, accountID, status interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListJitGrantsByAccount", reflect.TypeOf((*MockStore)(nil).ListJitGrantsByAccount), ctx, accountID, status)
+}
+
+// ListJitGrantsByRequester mocks base method.
+func (m *MockStore) ListJitGrantsByRequester(ctx context.Context, accountID, requesterUserID string) ([]*types2.JitGrant, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListJitGrantsByRequester", ctx, accountID, requesterUserID)
+	ret0, _ := ret[0].([]*types2.JitGrant)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListJitGrantsByRequester indicates an expected call of ListJitGrantsByRequester.
+func (mr *MockStoreMockRecorder) ListJitGrantsByRequester(ctx, accountID, requesterUserID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListJitGrantsByRequester", reflect.TypeOf((*MockStore)(nil).ListJitGrantsByRequester), ctx, accountID, requesterUserID)
+}
+
+// ListJitPolicies mocks base method.
+func (m *MockStore) ListJitPolicies(ctx context.Context, accountID string) ([]*types2.JitPolicy, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListJitPolicies", ctx, accountID)
+	ret0, _ := ret[0].([]*types2.JitPolicy)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListJitPolicies indicates an expected call of ListJitPolicies.
+func (mr *MockStoreMockRecorder) ListJitPolicies(ctx, accountID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListJitPolicies", reflect.TypeOf((*MockStore)(nil).ListJitPolicies), ctx, accountID)
+}
+
+// ListPendingJitGrantsExpiringBefore mocks base method.
+func (m *MockStore) ListPendingJitGrantsExpiringBefore(ctx context.Context, threshold time.Time) ([]*types2.JitGrant, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListPendingJitGrantsExpiringBefore", ctx, threshold)
+	ret0, _ := ret[0].([]*types2.JitGrant)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListPendingJitGrantsExpiringBefore indicates an expected call of ListPendingJitGrantsExpiringBefore.
+func (mr *MockStoreMockRecorder) ListPendingJitGrantsExpiringBefore(ctx, threshold interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListPendingJitGrantsExpiringBefore", reflect.TypeOf((*MockStore)(nil).ListPendingJitGrantsExpiringBefore), ctx, threshold)
 }
 
 // MarkAccountPrimary mocks base method.
@@ -2898,6 +3076,20 @@ func (mr *MockStoreMockRecorder) SaveInstallationID(ctx, ID interface{}) *gomock
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SaveInstallationID", reflect.TypeOf((*MockStore)(nil).SaveInstallationID), ctx, ID)
 }
 
+// SaveJitPolicy mocks base method.
+func (m *MockStore) SaveJitPolicy(ctx context.Context, policy *types2.JitPolicy) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SaveJitPolicy", ctx, policy)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SaveJitPolicy indicates an expected call of SaveJitPolicy.
+func (mr *MockStoreMockRecorder) SaveJitPolicy(ctx, policy interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SaveJitPolicy", reflect.TypeOf((*MockStore)(nil).SaveJitPolicy), ctx, policy)
+}
+
 // SaveNameServerGroup mocks base method.
 func (m *MockStore) SaveNameServerGroup(ctx context.Context, nameServerGroup *dns.NameServerGroup) error {
 	m.ctrl.T.Helper()
@@ -3132,6 +3324,22 @@ func (m *MockStore) SetFieldEncrypt(enc *crypt.FieldEncrypt) {
 func (mr *MockStoreMockRecorder) SetFieldEncrypt(enc interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetFieldEncrypt", reflect.TypeOf((*MockStore)(nil).SetFieldEncrypt), enc)
+}
+
+// TransitionJitGrantStatus mocks base method.
+func (m *MockStore) TransitionJitGrantStatus(ctx context.Context, grantID string, from, to types2.GrantStatus, patch types2.JitGrantPatch) (*types2.JitGrant, bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "TransitionJitGrantStatus", ctx, grantID, from, to, patch)
+	ret0, _ := ret[0].(*types2.JitGrant)
+	ret1, _ := ret[1].(bool)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
+}
+
+// TransitionJitGrantStatus indicates an expected call of TransitionJitGrantStatus.
+func (mr *MockStoreMockRecorder) TransitionJitGrantStatus(ctx, grantID, from, to, patch interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "TransitionJitGrantStatus", reflect.TypeOf((*MockStore)(nil).TransitionJitGrantStatus), ctx, grantID, from, to, patch)
 }
 
 // UpdateAccountDomainAttributes mocks base method.

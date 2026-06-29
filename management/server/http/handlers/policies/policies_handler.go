@@ -10,6 +10,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/account"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/geolocation"
+	"github.com/netbirdio/netbird/management/server/jit"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/management/http/api"
 	"github.com/netbirdio/netbird/shared/management/http/util"
@@ -61,6 +62,10 @@ func (h *handler) getAllPolicies(w http.ResponseWriter, r *http.Request) {
 
 	policies := make([]*api.Policy, 0, len(listPolicies))
 	for _, policy := range listPolicies {
+		// JIT: hide JIT-owned access policies from the standard list (rebaseability marker).
+		if jit.IsJitOwnedName(policy.Name) {
+			continue
+		}
 		resp := toPolicyResponse(allGroups, policy)
 		if len(resp.Rules) == 0 {
 			util.WriteError(r.Context(), status.Errorf(status.Internal, "no rules in the policy"), w)

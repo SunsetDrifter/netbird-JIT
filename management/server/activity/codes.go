@@ -245,6 +245,27 @@ const (
 	// tunnel. Distinct from UserLoggedInPeer (full interactive login).
 	UserExtendedPeerSession Activity = 125
 
+	// JitPolicyCreated indicates that a JIT access policy was created
+	JitPolicyCreated Activity = 126
+	// JitPolicyUpdated indicates that a JIT access policy was updated
+	JitPolicyUpdated Activity = 127
+	// JitPolicyDeleted indicates that a JIT access policy was deleted
+	JitPolicyDeleted Activity = 128
+	// JitAccessRequested indicates that a user submitted a JIT access request
+	JitAccessRequested Activity = 129
+	// JitAccessApproved indicates that a JIT access request was approved
+	JitAccessApproved Activity = 130
+	// JitAccessDenied indicates that a JIT access request was denied
+	JitAccessDenied Activity = 131
+	// JitAccessCancelled indicates that a JIT access request was cancelled by the requester
+	JitAccessCancelled Activity = 132
+	// JitAccessRevoked indicates that an active JIT grant was revoked by an admin
+	JitAccessRevoked Activity = 133
+	// JitAccessExpired indicates that an active JIT grant reached its expiry time
+	JitAccessExpired Activity = 134
+	// JitAccessExtended indicates that an active JIT grant was extended
+	JitAccessExtended Activity = 135
+
 	AccountDeleted Activity = 99999
 )
 
@@ -403,6 +424,17 @@ var activityMap = map[Activity]Code{
 	DomainAdded:     {"Domain added", "domain.add"},
 	DomainDeleted:   {"Domain deleted", "domain.delete"},
 	DomainValidated: {"Domain validated", "domain.validate"},
+
+	JitPolicyCreated:   {"JIT policy created", "jit.policy.create"},
+	JitPolicyUpdated:   {"JIT policy updated", "jit.policy.update"},
+	JitPolicyDeleted:   {"JIT policy deleted", "jit.policy.delete"},
+	JitAccessRequested: {"JIT access requested", "jit.access.request"},
+	JitAccessApproved:  {"JIT access approved", "jit.access.approve"},
+	JitAccessDenied:    {"JIT access denied", "jit.access.deny"},
+	JitAccessCancelled: {"JIT access cancelled", "jit.access.cancel"},
+	JitAccessRevoked:   {"JIT access revoked", "jit.access.revoke"},
+	JitAccessExpired:   {"JIT access expired", "jit.access.expire"},
+	JitAccessExtended:  {"JIT access extended", "jit.access.extend"},
 }
 
 // StringCode returns a string code of the activity

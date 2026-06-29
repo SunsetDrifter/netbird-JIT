@@ -650,6 +650,105 @@ func (e InvoiceResponseType) Valid() bool {
 	}
 }
 
+// Defines values for JitApproverCriteriaMode.
+const (
+	JitApproverCriteriaModeAnyAdmin JitApproverCriteriaMode = "any_admin"
+	JitApproverCriteriaModeGroups   JitApproverCriteriaMode = "groups"
+)
+
+// Valid indicates whether the value is a known member of the JitApproverCriteriaMode enum.
+func (e JitApproverCriteriaMode) Valid() bool {
+	switch e {
+	case JitApproverCriteriaModeAnyAdmin:
+		return true
+	case JitApproverCriteriaModeGroups:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for JitGrantStatus.
+const (
+	JitGrantStatusActive     JitGrantStatus = "active"
+	JitGrantStatusApproved   JitGrantStatus = "approved"
+	JitGrantStatusCancelled  JitGrantStatus = "cancelled"
+	JitGrantStatusDenied     JitGrantStatus = "denied"
+	JitGrantStatusExpired    JitGrantStatus = "expired"
+	JitGrantStatusFailed     JitGrantStatus = "failed"
+	JitGrantStatusPending    JitGrantStatus = "pending"
+	JitGrantStatusRevoked    JitGrantStatus = "revoked"
+	JitGrantStatusSuperseded JitGrantStatus = "superseded"
+)
+
+// Valid indicates whether the value is a known member of the JitGrantStatus enum.
+func (e JitGrantStatus) Valid() bool {
+	switch e {
+	case JitGrantStatusActive:
+		return true
+	case JitGrantStatusApproved:
+		return true
+	case JitGrantStatusCancelled:
+		return true
+	case JitGrantStatusDenied:
+		return true
+	case JitGrantStatusExpired:
+		return true
+	case JitGrantStatusFailed:
+		return true
+	case JitGrantStatusPending:
+		return true
+	case JitGrantStatusRevoked:
+		return true
+	case JitGrantStatusSuperseded:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for JitRequestableByMode.
+const (
+	JitRequestableByModeAll    JitRequestableByMode = "all"
+	JitRequestableByModeGroups JitRequestableByMode = "groups"
+)
+
+// Valid indicates whether the value is a known member of the JitRequestableByMode enum.
+func (e JitRequestableByMode) Valid() bool {
+	switch e {
+	case JitRequestableByModeAll:
+		return true
+	case JitRequestableByModeGroups:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for JitTrafficProtocol.
+const (
+	JitTrafficProtocolAll  JitTrafficProtocol = "all"
+	JitTrafficProtocolIcmp JitTrafficProtocol = "icmp"
+	JitTrafficProtocolTcp  JitTrafficProtocol = "tcp"
+	JitTrafficProtocolUdp  JitTrafficProtocol = "udp"
+)
+
+// Valid indicates whether the value is a known member of the JitTrafficProtocol enum.
+func (e JitTrafficProtocol) Valid() bool {
+	switch e {
+	case JitTrafficProtocolAll:
+		return true
+	case JitTrafficProtocolIcmp:
+		return true
+	case JitTrafficProtocolTcp:
+		return true
+	case JitTrafficProtocolUdp:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for JobResponseStatus.
 const (
 	JobResponseStatusFailed    JobResponseStatus = "failed"
@@ -1352,6 +1451,45 @@ func (e PutApiIntegrationsMspTenantsIdInviteJSONBodyValue) Valid() bool {
 	case PutApiIntegrationsMspTenantsIdInviteJSONBodyValueAccept:
 		return true
 	case PutApiIntegrationsMspTenantsIdInviteJSONBodyValueDecline:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ListJitRequestsParamsStatus.
+const (
+	ListJitRequestsParamsStatusActive     ListJitRequestsParamsStatus = "active"
+	ListJitRequestsParamsStatusApproved   ListJitRequestsParamsStatus = "approved"
+	ListJitRequestsParamsStatusCancelled  ListJitRequestsParamsStatus = "cancelled"
+	ListJitRequestsParamsStatusDenied     ListJitRequestsParamsStatus = "denied"
+	ListJitRequestsParamsStatusExpired    ListJitRequestsParamsStatus = "expired"
+	ListJitRequestsParamsStatusFailed     ListJitRequestsParamsStatus = "failed"
+	ListJitRequestsParamsStatusPending    ListJitRequestsParamsStatus = "pending"
+	ListJitRequestsParamsStatusRevoked    ListJitRequestsParamsStatus = "revoked"
+	ListJitRequestsParamsStatusSuperseded ListJitRequestsParamsStatus = "superseded"
+)
+
+// Valid indicates whether the value is a known member of the ListJitRequestsParamsStatus enum.
+func (e ListJitRequestsParamsStatus) Valid() bool {
+	switch e {
+	case ListJitRequestsParamsStatusActive:
+		return true
+	case ListJitRequestsParamsStatusApproved:
+		return true
+	case ListJitRequestsParamsStatusCancelled:
+		return true
+	case ListJitRequestsParamsStatusDenied:
+		return true
+	case ListJitRequestsParamsStatusExpired:
+		return true
+	case ListJitRequestsParamsStatusFailed:
+		return true
+	case ListJitRequestsParamsStatusPending:
+		return true
+	case ListJitRequestsParamsStatusRevoked:
+		return true
+	case ListJitRequestsParamsStatusSuperseded:
 		return true
 	default:
 		return false
@@ -2618,6 +2756,155 @@ type InvoiceResponse struct {
 
 // InvoiceResponseType The invoice type
 type InvoiceResponseType string
+
+// JitApproverCriteria Defines who may approve JIT requests for a policy.
+type JitApproverCriteria struct {
+	// GroupIds Required when mode is "groups".
+	GroupIds *[]string `json:"groupIds,omitempty"`
+
+	// Mode "any_admin" lets any admin/owner approve; "groups" restricts to members of listed groups.
+	Mode JitApproverCriteriaMode `json:"mode"`
+}
+
+// JitApproverCriteriaMode "any_admin" lets any admin/owner approve; "groups" restricts to members of listed groups.
+type JitApproverCriteriaMode string
+
+// JitCreatePolicyRequest Request body for creating a JIT policy.
+type JitCreatePolicyRequest struct {
+	// ApproverCriteria Defines who may approve JIT requests for a policy.
+	ApproverCriteria   JitApproverCriteria `json:"approverCriteria"`
+	Description        *string             `json:"description,omitempty"`
+	MaxDurationMinutes int                 `json:"maxDurationMinutes"`
+	Name               string              `json:"name"`
+	PendingTtlMinutes  *int                `json:"pendingTtlMinutes,omitempty"`
+
+	// RequestableBy Defines who may request access under a JIT policy.
+	RequestableBy     JitRequestableBy `json:"requestableBy"`
+	TargetResourceIds []string         `json:"targetResourceIds"`
+
+	// Traffic Network traffic specification for a JIT policy.
+	Traffic *JitTraffic `json:"traffic,omitempty"`
+}
+
+// JitCreateRequestBody Request body for submitting a JIT access request.
+type JitCreateRequestBody struct {
+	DurationMinutes int     `json:"durationMinutes"`
+	Justification   *string `json:"justification,omitempty"`
+	PolicyId        string  `json:"policyId"`
+}
+
+// JitDecisionReasonBody Optional reason body for deny/revoke operations.
+type JitDecisionReasonBody struct {
+	Reason *string `json:"reason,omitempty"`
+}
+
+// JitEligiblePolicy Trimmed policy view returned to eligible requesters.
+type JitEligiblePolicy struct {
+	Description        *string  `json:"description,omitempty"`
+	Id                 string   `json:"id"`
+	MaxDurationMinutes int      `json:"maxDurationMinutes"`
+	Name               string   `json:"name"`
+	TargetResourceIds  []string `json:"targetResourceIds"`
+}
+
+// JitExtendBody Request body for extending an active grant.
+type JitExtendBody struct {
+	DurationMinutes int `json:"durationMinutes"`
+}
+
+// JitGrant A JIT request/grant lifecycle row.
+type JitGrant struct {
+	ActivatedAt              *time.Time     `json:"activatedAt,omitempty"`
+	ApproverEmail            *string        `json:"approverEmail,omitempty"`
+	ApproverUserId           *string        `json:"approverUserId,omitempty"`
+	DecidedAt                *time.Time     `json:"decidedAt,omitempty"`
+	DenialReason             *string        `json:"denialReason,omitempty"`
+	ExpiresAt                *time.Time     `json:"expiresAt,omitempty"`
+	Id                       string         `json:"id"`
+	Justification            *string        `json:"justification,omitempty"`
+	LastError                *string        `json:"lastError,omitempty"`
+	PendingExpiresAt         *time.Time     `json:"pendingExpiresAt,omitempty"`
+	PolicyId                 string         `json:"policyId"`
+	PolicyName               *string        `json:"policyName,omitempty"`
+	RequestedAt              time.Time      `json:"requestedAt"`
+	RequestedDurationMinutes int            `json:"requestedDurationMinutes"`
+	RequesterEmail           *string        `json:"requesterEmail,omitempty"`
+	RequesterUserId          string         `json:"requesterUserId"`
+	RevokeReason             *string        `json:"revokeReason,omitempty"`
+	RevokedAt                *time.Time     `json:"revokedAt,omitempty"`
+	Status                   JitGrantStatus `json:"status"`
+	SupersedesGrantId        *string        `json:"supersedesGrantId,omitempty"`
+}
+
+// JitGrantStatus defines model for JitGrant.Status.
+type JitGrantStatus string
+
+// JitPolicy A JIT access policy defining who may request temporary access to a set of resources.
+type JitPolicy struct {
+	// ApproverCriteria Defines who may approve JIT requests for a policy.
+	ApproverCriteria   JitApproverCriteria `json:"approverCriteria"`
+	BackingGroupId     *string             `json:"backingGroupId,omitempty"`
+	CreatedAt          time.Time           `json:"createdAt"`
+	CreatedByEmail     *string             `json:"createdByEmail,omitempty"`
+	CreatedByUserId    string              `json:"createdByUserId"`
+	Description        *string             `json:"description,omitempty"`
+	Enabled            bool                `json:"enabled"`
+	Id                 string              `json:"id"`
+	MaxDurationMinutes int                 `json:"maxDurationMinutes"`
+	Name               string              `json:"name"`
+	NetbirdPolicyId    *string             `json:"netbirdPolicyId,omitempty"`
+	PendingTtlMinutes  int                 `json:"pendingTtlMinutes"`
+
+	// RequestableBy Defines who may request access under a JIT policy.
+	RequestableBy     JitRequestableBy `json:"requestableBy"`
+	TargetResourceIds []string         `json:"targetResourceIds"`
+
+	// Traffic Network traffic specification for a JIT policy.
+	Traffic   JitTraffic `json:"traffic"`
+	UpdatedAt time.Time  `json:"updatedAt"`
+}
+
+// JitRequestableBy Defines who may request access under a JIT policy.
+type JitRequestableBy struct {
+	// GroupIds Required when mode is "groups".
+	GroupIds *[]string `json:"groupIds,omitempty"`
+
+	// Mode "all" admits every authenticated user; "groups" restricts to listed group IDs.
+	Mode JitRequestableByMode `json:"mode"`
+}
+
+// JitRequestableByMode "all" admits every authenticated user; "groups" restricts to listed group IDs.
+type JitRequestableByMode string
+
+// JitTraffic Network traffic specification for a JIT policy.
+type JitTraffic struct {
+	// Ports Port numbers or ranges (e.g. "80", "443", "8080-8090"). Omit for all ports.
+	Ports *[]string `json:"ports,omitempty"`
+
+	// Protocol Protocol to allow.
+	Protocol JitTrafficProtocol `json:"protocol"`
+}
+
+// JitTrafficProtocol Protocol to allow.
+type JitTrafficProtocol string
+
+// JitUpdatePolicyRequest Request body for updating a JIT policy (all fields optional).
+type JitUpdatePolicyRequest struct {
+	// ApproverCriteria Defines who may approve JIT requests for a policy.
+	ApproverCriteria   *JitApproverCriteria `json:"approverCriteria,omitempty"`
+	Description        *string              `json:"description,omitempty"`
+	Enabled            *bool                `json:"enabled,omitempty"`
+	MaxDurationMinutes *int                 `json:"maxDurationMinutes,omitempty"`
+	Name               *string              `json:"name,omitempty"`
+	PendingTtlMinutes  *int                 `json:"pendingTtlMinutes,omitempty"`
+
+	// RequestableBy Defines who may request access under a JIT policy.
+	RequestableBy     *JitRequestableBy `json:"requestableBy,omitempty"`
+	TargetResourceIds *[]string         `json:"targetResourceIds,omitempty"`
+
+	// Traffic Network traffic specification for a JIT policy.
+	Traffic *JitTraffic `json:"traffic,omitempty"`
+}
 
 // JobRequest defines model for JobRequest.
 type JobRequest struct {
@@ -5066,6 +5353,14 @@ type PostApiIntegrationsMspTenantsIdUnlinkJSONBody struct {
 	Owner string `json:"owner"`
 }
 
+// ListJitRequestsParams defines parameters for ListJitRequests.
+type ListJitRequestsParams struct {
+	Status *ListJitRequestsParamsStatus `form:"status,omitempty" json:"status,omitempty"`
+}
+
+// ListJitRequestsParamsStatus defines parameters for ListJitRequests.
+type ListJitRequestsParamsStatus string
+
 // GetApiPeersParams defines parameters for GetApiPeers.
 type GetApiPeersParams struct {
 	// Name Filter peers by name
@@ -5221,6 +5516,24 @@ type CreateSCIMIntegrationJSONRequestBody = CreateScimIntegrationRequest
 
 // UpdateSCIMIntegrationJSONRequestBody defines body for UpdateSCIMIntegration for application/json ContentType.
 type UpdateSCIMIntegrationJSONRequestBody = UpdateScimIntegrationRequest
+
+// ExtendJitGrantJSONRequestBody defines body for ExtendJitGrant for application/json ContentType.
+type ExtendJitGrantJSONRequestBody = JitExtendBody
+
+// RevokeJitGrantJSONRequestBody defines body for RevokeJitGrant for application/json ContentType.
+type RevokeJitGrantJSONRequestBody = JitDecisionReasonBody
+
+// CreateJitPolicyJSONRequestBody defines body for CreateJitPolicy for application/json ContentType.
+type CreateJitPolicyJSONRequestBody = JitCreatePolicyRequest
+
+// UpdateJitPolicyJSONRequestBody defines body for UpdateJitPolicy for application/json ContentType.
+type UpdateJitPolicyJSONRequestBody = JitUpdatePolicyRequest
+
+// CreateJitRequestJSONRequestBody defines body for CreateJitRequest for application/json ContentType.
+type CreateJitRequestJSONRequestBody = JitCreateRequestBody
+
+// DenyJitRequestJSONRequestBody defines body for DenyJitRequest for application/json ContentType.
+type DenyJitRequestJSONRequestBody = JitDecisionReasonBody
 
 // PostApiNetworksJSONRequestBody defines body for PostApiNetworks for application/json ContentType.
 type PostApiNetworksJSONRequestBody = NetworkRequest

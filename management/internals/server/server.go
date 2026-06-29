@@ -182,6 +182,11 @@ func (s *BaseServer) Start(ctx context.Context) error {
 		}
 	}
 
+	// Start the JIT background sweeper (expire due grants, auto-deny stale
+	// pending requests, retry failed grants). It runs until Stop() (or srvCtx
+	// cancellation) and is started here so all managers it depends on are built.
+	s.JitManager().StartSweeper(srvCtx, jitSweepInterval)
+
 	var compatListener net.Listener
 	if s.mgmtPort != ManagementLegacyPort && !s.disableLegacyManagementPort {
 		// The Management gRPC server was running on port 33073 previously. Old agents that are already connected to it
@@ -245,6 +250,7 @@ func (s *BaseServer) Stop() error {
 		_ = s.GeoLocationManager().Stop()
 	}
 	s.EphemeralManager().Stop()
+	s.JitManager().Stop()
 	_ = s.Metrics().Close()
 	if s.listener != nil {
 		_ = s.listener.Close()

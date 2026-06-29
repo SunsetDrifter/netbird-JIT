@@ -43,6 +43,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/http/handlers/groups"
 	"github.com/netbirdio/netbird/management/server/http/handlers/idp"
 	"github.com/netbirdio/netbird/management/server/http/handlers/instance"
+	jithandler "github.com/netbirdio/netbird/management/server/http/handlers/jit"
 	"github.com/netbirdio/netbird/management/server/http/handlers/networks"
 	"github.com/netbirdio/netbird/management/server/http/handlers/peers"
 	"github.com/netbirdio/netbird/management/server/http/handlers/policies"
@@ -52,6 +53,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/http/middleware"
 	"github.com/netbirdio/netbird/management/server/http/middleware/bypass"
 	nbinstance "github.com/netbirdio/netbird/management/server/instance"
+	"github.com/netbirdio/netbird/management/server/jit"
 	nbnetworks "github.com/netbirdio/netbird/management/server/networks"
 	"github.com/netbirdio/netbird/management/server/networks/resources"
 	"github.com/netbirdio/netbird/management/server/networks/routers"
@@ -59,7 +61,7 @@ import (
 )
 
 // NewAPIHandler creates the Management service HTTP API handler registering all the available endpoints.
-func NewAPIHandler(ctx context.Context, router *mux.Router, accountManager account.Manager, networksManager nbnetworks.Manager, resourceManager resources.Manager, routerManager routers.Manager, groupsManager nbgroups.Manager, LocationManager geolocation.Geolocation, authManager auth.Manager, appMetrics telemetry.AppMetrics, permissionsManager permissions.Manager, settingsManager settings.Manager, zManager zones.Manager, rManager records.Manager, networkMapController network_map.Controller, idpManager idpmanager.Manager, serviceManager service.Manager, reverseProxyDomainManager *manager.Manager, reverseProxyAccessLogsManager accesslogs.Manager, proxyGRPCServer *nbgrpc.ProxyServiceServer, trustedHTTPProxies []netip.Prefix, rateLimiter *middleware.APIRateLimiter, isValidChildAccount middleware.IsValidChildAccountFunc) (http.Handler, error) {
+func NewAPIHandler(ctx context.Context, router *mux.Router, accountManager account.Manager, networksManager nbnetworks.Manager, resourceManager resources.Manager, routerManager routers.Manager, groupsManager nbgroups.Manager, LocationManager geolocation.Geolocation, authManager auth.Manager, appMetrics telemetry.AppMetrics, permissionsManager permissions.Manager, settingsManager settings.Manager, zManager zones.Manager, rManager records.Manager, networkMapController network_map.Controller, idpManager idpmanager.Manager, serviceManager service.Manager, reverseProxyDomainManager *manager.Manager, reverseProxyAccessLogsManager accesslogs.Manager, proxyGRPCServer *nbgrpc.ProxyServiceServer, trustedHTTPProxies []netip.Prefix, rateLimiter *middleware.APIRateLimiter, isValidChildAccount middleware.IsValidChildAccountFunc, jitManager jit.JitManager) (http.Handler, error) {
 
 	// Register bypass paths for unauthenticated endpoints
 	if err := bypass.AddBypassPath("/api/instance"); err != nil {
@@ -124,6 +126,9 @@ func NewAPIHandler(ctx context.Context, router *mux.Router, accountManager accou
 	zonesManager.RegisterEndpoints(router, zManager)
 	recordsManager.RegisterEndpoints(router, rManager)
 	idp.AddEndpoints(accountManager, router)
+	if jitManager != nil {
+		jithandler.AddEndpoints(jitManager, accountManager, permissionsManager, router)
+	}
 	instance.AddEndpoints(instanceManager, accountManager, router)
 	instance.AddVersionEndpoint(instanceManager, router)
 	if serviceManager != nil && reverseProxyDomainManager != nil {

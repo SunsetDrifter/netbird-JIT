@@ -329,6 +329,33 @@ type Store interface {
 	GetProxyMetrics(ctx context.Context) (ProxyMetrics, error)
 
 	GetRoutingPeerNetworks(ctx context.Context, accountID, peerID string) ([]string, error)
+
+	// JIT policy CRUD
+	SaveJitPolicy(ctx context.Context, policy *types.JitPolicy) error
+	GetJitPolicyByID(ctx context.Context, accountID, policyID string) (*types.JitPolicy, error)
+	ListJitPolicies(ctx context.Context, accountID string) ([]*types.JitPolicy, error)
+	DeleteJitPolicy(ctx context.Context, accountID, policyID string) error
+
+	// JIT grant queries
+	CreateJitGrant(ctx context.Context, grant *types.JitGrant) error
+	GetJitGrantByID(ctx context.Context, accountID, grantID string) (*types.JitGrant, error)
+	ListJitGrantsByRequester(ctx context.Context, accountID, requesterUserID string) ([]*types.JitGrant, error)
+	// ListJitGrantsByAccount lists grants for an account; pass an empty status to list all statuses.
+	ListJitGrantsByAccount(ctx context.Context, accountID string, status types.GrantStatus) ([]*types.JitGrant, error)
+	GetActiveJitGrantFor(ctx context.Context, accountID, requesterUserID, policyID string) (*types.JitGrant, error)
+	ListActiveJitGrantsExpiringBefore(ctx context.Context, threshold time.Time) ([]*types.JitGrant, error)
+	ListPendingJitGrantsExpiringBefore(ctx context.Context, threshold time.Time) ([]*types.JitGrant, error)
+	// ListFailedJitGrants returns all failed grants across all accounts for
+	// the scheduler retry sweep. There is no accountID filter: the sweep is
+	// global by design (cross-account), matching the other sweeper list methods.
+	ListFailedJitGrants(ctx context.Context) ([]*types.JitGrant, error)
+	ActiveGrantUserIDsForPolicy(ctx context.Context, accountID, policyID string) ([]string, error)
+
+	// TransitionJitGrantStatus is a compare-and-set atomic transition:
+	// UPDATE jit_grants SET status=to, <patch fields> WHERE id=id AND status=from.
+	// Returns (updated grant, true, nil) on success; (nil, false, nil) when zero
+	// rows matched (the caller lost the race — not an error).
+	TransitionJitGrantStatus(ctx context.Context, grantID string, from, to types.GrantStatus, patch types.JitGrantPatch) (*types.JitGrant, bool, error)
 }
 
 // ProxyMetrics aggregates self-hosted proxy + cluster usage signals

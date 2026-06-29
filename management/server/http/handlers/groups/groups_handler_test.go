@@ -19,6 +19,7 @@ import (
 
 	"github.com/netbirdio/netbird/management/server"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
+	"github.com/netbirdio/netbird/management/server/jit"
 	"github.com/netbirdio/netbird/management/server/mock_server"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/types"
@@ -453,4 +454,85 @@ func TestDeleteGroup(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestGetAllGroups_HidesJitOwnedGroups verifies that getAllGroups omits groups
+// whose name carries the JIT marker prefix, while still returning normal groups.
+// GET-by-id is exercised separately (getGroup) and must still return the
+// marker-named group to confirm behaviour is unchanged outside the list path.
+func TestGetAllGroups_HidesJitOwnedGroups(t *testing.T) {
+	jitGroup := &types.Group{
+		ID:     "id-jit-backing",
+		Name:   jit.DefaultMarker + "my-policy",
+		Issued: types.GroupIssuedAPI,
+	}
+	normalGroup := &types.Group{
+		ID:     "id-normal",
+		Name:   "Normal Group",
+		Issued: types.GroupIssuedAPI,
+	}
+
+	p := &handler{
+		accountManager: &mock_server.MockAccountManager{
+			GetAllGroupsFunc: func(_ context.Context, _, _ string) ([]*types.Group, error) {
+				return []*types.Group{jitGroup, normalGroup}, nil
+			},
+			GetPeersFunc: func(_ context.Context, _, _, _, _ string) ([]*nbpeer.Peer, error) {
+				return nil, nil
+			},
+		},
+	}
+
+	recorder := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/groups", nil)
+	req = nbcontext.SetUserAuthInRequest(req, auth.UserAuth{
+		UserId:    "test_user",
+		Domain:    "hotmail.com",
+		AccountId: "test_id",
+	})
+
+	router := mux.NewRouter()
+	router.HandleFunc("/api/groups", p.getAllGroups).Methods("GET")
+	router.ServeHTTP(recorder, req)
+
+	assert.Equal(t, http.StatusOK, recorder.Code)
+
+	var got []*api.Group
+	assert.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &got))
+
+	ids := make([]string, 0, len(got))
+	for _, g := range got {
+		ids = append(ids, g.Id)
+	}
+	assert.Contains(t, ids, normalGroup.ID, "normal group must appear in list")
+	assert.NotContains(t, ids, jitGroup.ID, "JIT-owned group must be hidden from list")
+}
+
+// TestGetGroup_JitOwnedGroupStillAccessibleByID confirms that GET-by-id is NOT
+// affected by the list filter: a JIT-owned group is still retrievable directly.
+func TestGetGroup_JitOwnedGroupStillAccessibleByID(t *testing.T) {
+	jitGroup := &types.Group{
+		ID:   "id-jit-backing",
+		Name: jit.DefaultMarker + "my-policy",
+	}
+
+	p := initGroupTestData(jitGroup)
+
+	recorder := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/groups/id-jit-backing", nil)
+	req = nbcontext.SetUserAuthInRequest(req, auth.UserAuth{
+		UserId:    "test_user",
+		Domain:    "hotmail.com",
+		AccountId: "test_id",
+	})
+
+	router := mux.NewRouter()
+	router.HandleFunc("/api/groups/{groupId}", p.getGroup).Methods("GET")
+	router.ServeHTTP(recorder, req)
+
+	assert.Equal(t, http.StatusOK, recorder.Code)
+
+	var got api.Group
+	assert.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &got))
+	assert.Equal(t, jitGroup.ID, got.Id)
 }

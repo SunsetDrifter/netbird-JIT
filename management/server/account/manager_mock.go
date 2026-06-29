@@ -97,6 +97,20 @@ func (mr *MockManagerMockRecorder) AddPeer(ctx, accountID, setupKey, userID, p, 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AddPeer", reflect.TypeOf((*MockManager)(nil).AddPeer), ctx, accountID, setupKey, userID, p, temporary)
 }
 
+// ApplyJitAutoGroup mocks base method.
+func (m *MockManager) ApplyJitAutoGroup(ctx context.Context, accountID, userID, groupID string, add bool) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ApplyJitAutoGroup", ctx, accountID, userID, groupID, add)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ApplyJitAutoGroup indicates an expected call of ApplyJitAutoGroup.
+func (mr *MockManagerMockRecorder) ApplyJitAutoGroup(ctx, accountID, userID, groupID, add interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ApplyJitAutoGroup", reflect.TypeOf((*MockManager)(nil).ApplyJitAutoGroup), ctx, accountID, userID, groupID, add)
+}
+
 // ApproveUser mocks base method.
 func (m *MockManager) ApproveUser(ctx context.Context, accountID, initiatorUserID, targetUserID string) (*types.UserInfo, error) {
 	m.ctrl.T.Helper()

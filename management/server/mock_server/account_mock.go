@@ -55,6 +55,7 @@ type MockAccountManager struct {
 	DeleteGroupsFunc                      func(ctx context.Context, accountId, userId string, groupIDs []string) error
 	GroupAddPeerFunc                      func(ctx context.Context, accountID, groupID, peerID string) error
 	GroupDeletePeerFunc                   func(ctx context.Context, accountID, groupID, peerID string) error
+	ApplyJitAutoGroupFunc                 func(ctx context.Context, accountID, userID, groupID string, add bool) error
 	GetPeerGroupsFunc                     func(ctx context.Context, accountID, peerID string) ([]*types.Group, error)
 	DeleteRuleFunc                        func(ctx context.Context, accountID, ruleID, userID string) error
 	GetPolicyFunc                         func(ctx context.Context, accountID, policyID, userID string) (*types.Policy, error)
@@ -485,6 +486,14 @@ func (am *MockAccountManager) GroupDeletePeer(ctx context.Context, accountID, gr
 		return am.GroupDeletePeerFunc(ctx, accountID, groupID, peerID)
 	}
 	return status.Errorf(codes.Unimplemented, "method GroupDeletePeer is not implemented")
+}
+
+// ApplyJitAutoGroup mock implementation of ApplyJitAutoGroup from server.AccountManager interface
+func (am *MockAccountManager) ApplyJitAutoGroup(ctx context.Context, accountID, userID, groupID string, add bool) error {
+	if am.ApplyJitAutoGroupFunc != nil {
+		return am.ApplyJitAutoGroupFunc(ctx, accountID, userID, groupID, add)
+	}
+	return status.Errorf(codes.Unimplemented, "method ApplyJitAutoGroup is not implemented")
 }
 
 // DeleteRule mock implementation of DeleteRule from server.AccountManager interface

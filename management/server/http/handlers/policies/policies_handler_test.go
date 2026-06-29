@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
+	"github.com/netbirdio/netbird/management/server/jit"
 	"github.com/netbirdio/netbird/management/server/mock_server"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/auth"
@@ -307,4 +308,96 @@ func TestPoliciesWritePolicy(t *testing.T) {
 			assert.Equal(t, strings.Trim(string(content), " \n"), string(expected), "content mismatch")
 		})
 	}
+}
+
+// TestGetAllPolicies_HidesJitOwnedPolicies verifies that getAllPolicies omits
+// policies whose name carries the JIT marker prefix, while still returning
+// normal policies. GET-by-id (getPolicy) is tested separately and must still
+// return the marker-named policy to confirm behaviour is unchanged outside the
+// list path.
+func TestGetAllPolicies_HidesJitOwnedPolicies(t *testing.T) {
+	jitPolicy := &types.Policy{
+		ID:   "id-jit-policy",
+		Name: jit.DefaultMarker + "my-policy",
+		Rules: []*types.PolicyRule{
+			{ID: "id-jit-rule", Name: jit.DefaultMarker + "my-policy-0"},
+		},
+	}
+	normalPolicy := &types.Policy{
+		ID:   "id-normal-policy",
+		Name: "Normal Policy",
+		Rules: []*types.PolicyRule{
+			{ID: "id-normal-rule", Name: "Normal Rule"},
+		},
+	}
+
+	p := &handler{
+		accountManager: &mock_server.MockAccountManager{
+			ListPoliciesFunc: func(_ context.Context, _, _ string) ([]*types.Policy, error) {
+				return []*types.Policy{jitPolicy, normalPolicy}, nil
+			},
+			GetAllGroupsFunc: func(_ context.Context, _, _ string) ([]*types.Group, error) {
+				return []*types.Group{}, nil
+			},
+		},
+	}
+
+	recorder := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/policies", nil)
+	req = nbcontext.SetUserAuthInRequest(req, auth.UserAuth{
+		UserId:    "test_user",
+		Domain:    "hotmail.com",
+		AccountId: "test_id",
+	})
+
+	router := mux.NewRouter()
+	router.HandleFunc("/api/policies", p.getAllPolicies).Methods("GET")
+	router.ServeHTTP(recorder, req)
+
+	assert.Equal(t, http.StatusOK, recorder.Code)
+
+	var got []*api.Policy
+	assert.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &got))
+
+	ids := make([]string, 0, len(got))
+	for _, pol := range got {
+		if pol.Id != nil {
+			ids = append(ids, *pol.Id)
+		}
+	}
+	assert.Contains(t, ids, normalPolicy.ID, "normal policy must appear in list")
+	assert.NotContains(t, ids, jitPolicy.ID, "JIT-owned policy must be hidden from list")
+}
+
+// TestGetPolicy_JitOwnedPolicyStillAccessibleByID confirms that GET-by-id is
+// NOT affected by the list filter: a JIT-owned policy is still retrievable.
+func TestGetPolicy_JitOwnedPolicyStillAccessibleByID(t *testing.T) {
+	jitPolicy := &types.Policy{
+		ID:   "id-jit-policy",
+		Name: jit.DefaultMarker + "my-policy",
+		Rules: []*types.PolicyRule{
+			{ID: "id-jit-rule", Name: jit.DefaultMarker + "my-policy-0"},
+		},
+	}
+
+	p := initPoliciesTestData(jitPolicy)
+
+	recorder := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/policies/id-jit-policy", nil)
+	req = nbcontext.SetUserAuthInRequest(req, auth.UserAuth{
+		UserId:    "test_user",
+		Domain:    "hotmail.com",
+		AccountId: "test_id",
+	})
+
+	router := mux.NewRouter()
+	router.HandleFunc("/api/policies/{policyId}", p.getPolicy).Methods("GET")
+	router.ServeHTTP(recorder, req)
+
+	assert.Equal(t, http.StatusOK, recorder.Code)
+
+	var got api.Policy
+	assert.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &got))
+	assert.NotNil(t, got.Id)
+	assert.Equal(t, jitPolicy.ID, *got.Id)
 }
