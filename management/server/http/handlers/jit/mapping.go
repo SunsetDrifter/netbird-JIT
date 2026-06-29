@@ -218,10 +218,11 @@ func toEligiblePolicyResponse(p *types.JitPolicy) eligiblePolicyResponse {
 	}
 }
 
-func toGrantResponse(g *types.JitGrant) grantResponse {
+func toGrantResponse(g *types.JitGrant, policyName string) grantResponse {
 	resp := grantResponse{
 		ID:                       g.ID,
 		PolicyId:                 g.PolicyID,
+		PolicyName:               policyName,
 		SupersedesGrantId:        g.SupersedesGrantID,
 		RequesterUserId:          g.RequesterUserID,
 		RequesterEmail:           g.RequesterEmail,

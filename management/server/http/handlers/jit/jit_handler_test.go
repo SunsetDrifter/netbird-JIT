@@ -354,6 +354,9 @@ func TestListGrants_AdminWithStatusFilter(t *testing.T) {
 			assert.Equal(t, types.GrantStatusActive, s)
 			return []*types.JitGrant{g}, nil
 		},
+		listPoliciesFunc: func(_ context.Context, _ string) ([]*types.JitPolicy, error) {
+			return []*types.JitPolicy{{ID: "pol1", Name: "Engineering VPN"}}, nil
+		},
 	}
 
 	router := buildRouter(mgr, types.NewAdminUser("admin1"), true)
@@ -366,4 +369,5 @@ func TestListGrants_AdminWithStatusFilter(t *testing.T) {
 	require.Len(t, resp, 1)
 	assert.Equal(t, "grant2", resp[0]["id"])
 	assert.Equal(t, "active", resp[0]["status"])
+	assert.Equal(t, "Engineering VPN", resp[0]["policyName"]) // resolved server-side from ListPolicies
 }

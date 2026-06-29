@@ -1,6 +1,7 @@
 package jit
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 
@@ -314,9 +315,10 @@ func (h *handler) listRequests(w http.ResponseWriter, r *http.Request) {
 		util.WriteError(r.Context(), err, w)
 		return
 	}
+	names := h.policyNames(r.Context(), accountID)
 	resp := make([]grantResponse, 0, len(grants))
 	for _, g := range grants {
-		resp = append(resp, toGrantResponse(g))
+		resp = append(resp, toGrantResponse(g, names[g.PolicyID]))
 	}
 	util.WriteJSONObject(r.Context(), w, resp)
 }
@@ -332,7 +334,7 @@ func (h *handler) approveRequest(w http.ResponseWriter, r *http.Request) {
 		util.WriteError(r.Context(), err, w)
 		return
 	}
-	util.WriteJSONObject(r.Context(), w, toGrantResponse(grant))
+	util.WriteJSONObject(r.Context(), w, toGrantResponse(grant, h.policyName(r.Context(), accountID, grant.PolicyID)))
 }
 
 func (h *handler) denyRequest(w http.ResponseWriter, r *http.Request) {
@@ -347,7 +349,7 @@ func (h *handler) denyRequest(w http.ResponseWriter, r *http.Request) {
 		util.WriteError(r.Context(), err, w)
 		return
 	}
-	util.WriteJSONObject(r.Context(), w, toGrantResponse(grant))
+	util.WriteJSONObject(r.Context(), w, toGrantResponse(grant, h.policyName(r.Context(), accountID, grant.PolicyID)))
 }
 
 // ---------------------------------------------------------------------------
@@ -377,7 +379,7 @@ func (h *handler) createRequest(w http.ResponseWriter, r *http.Request) {
 		util.WriteError(r.Context(), err, w)
 		return
 	}
-	util.WriteJSONObject(r.Context(), w, toGrantResponse(grant))
+	util.WriteJSONObject(r.Context(), w, toGrantResponse(grant, h.policyName(r.Context(), accountID, grant.PolicyID)))
 }
 
 func (h *handler) listMine(w http.ResponseWriter, r *http.Request) {
@@ -390,9 +392,10 @@ func (h *handler) listMine(w http.ResponseWriter, r *http.Request) {
 		util.WriteError(r.Context(), err, w)
 		return
 	}
+	names := h.policyNames(r.Context(), accountID)
 	resp := make([]grantResponse, 0, len(grants))
 	for _, g := range grants {
-		resp = append(resp, toGrantResponse(g))
+		resp = append(resp, toGrantResponse(g, names[g.PolicyID]))
 	}
 	util.WriteJSONObject(r.Context(), w, resp)
 }
@@ -408,7 +411,7 @@ func (h *handler) cancelRequest(w http.ResponseWriter, r *http.Request) {
 		util.WriteError(r.Context(), err, w)
 		return
 	}
-	util.WriteJSONObject(r.Context(), w, toGrantResponse(grant))
+	util.WriteJSONObject(r.Context(), w, toGrantResponse(grant, h.policyName(r.Context(), accountID, grant.PolicyID)))
 }
 
 // ---------------------------------------------------------------------------
@@ -425,9 +428,10 @@ func (h *handler) listActiveGrants(w http.ResponseWriter, r *http.Request) {
 		util.WriteError(r.Context(), err, w)
 		return
 	}
+	names := h.policyNames(r.Context(), accountID)
 	resp := make([]grantResponse, 0, len(grants))
 	for _, g := range grants {
-		resp = append(resp, toGrantResponse(g))
+		resp = append(resp, toGrantResponse(g, names[g.PolicyID]))
 	}
 	util.WriteJSONObject(r.Context(), w, resp)
 }
@@ -444,7 +448,7 @@ func (h *handler) revokeGrant(w http.ResponseWriter, r *http.Request) {
 		util.WriteError(r.Context(), err, w)
 		return
 	}
-	util.WriteJSONObject(r.Context(), w, toGrantResponse(grant))
+	util.WriteJSONObject(r.Context(), w, toGrantResponse(grant, h.policyName(r.Context(), accountID, grant.PolicyID)))
 }
 
 func (h *handler) extendGrant(w http.ResponseWriter, r *http.Request) {
@@ -467,7 +471,7 @@ func (h *handler) extendGrant(w http.ResponseWriter, r *http.Request) {
 		util.WriteError(r.Context(), err, w)
 		return
 	}
-	util.WriteJSONObject(r.Context(), w, toGrantResponse(grant))
+	util.WriteJSONObject(r.Context(), w, toGrantResponse(grant, h.policyName(r.Context(), accountID, grant.PolicyID)))
 }
 
 // Self-service: end grant early.
@@ -482,12 +486,39 @@ func (h *handler) endGrant(w http.ResponseWriter, r *http.Request) {
 		util.WriteError(r.Context(), err, w)
 		return
 	}
-	util.WriteJSONObject(r.Context(), w, toGrantResponse(grant))
+	util.WriteJSONObject(r.Context(), w, toGrantResponse(grant, h.policyName(r.Context(), accountID, grant.PolicyID)))
 }
 
 // ---------------------------------------------------------------------------
 // small helpers
 // ---------------------------------------------------------------------------
+
+// policyNames builds a policyID→name map for the account so grant responses can
+// carry PolicyName. Non-admins can't list policies, but this is a server-side
+// lookup that runs regardless of the caller's role — it only surfaces the names
+// of policies the caller already has grants for. On error it returns an empty
+// map; PolicyName is omitempty, so the client degrades gracefully.
+func (h *handler) policyNames(ctx context.Context, accountID string) map[string]string {
+	policies, err := h.jitManager.ListPolicies(ctx, accountID)
+	if err != nil {
+		return map[string]string{}
+	}
+	names := make(map[string]string, len(policies))
+	for _, p := range policies {
+		names[p.ID] = p.Name
+	}
+	return names
+}
+
+// policyName resolves a single grant's policy name for a response. Returns ""
+// (omitted) when the policy can't be found.
+func (h *handler) policyName(ctx context.Context, accountID, policyID string) string {
+	p, err := h.jitManager.GetPolicy(ctx, accountID, policyID)
+	if err != nil || p == nil {
+		return ""
+	}
+	return p.Name
+}
 
 // decodeReason attempts to read an optional {"reason": "..."} body. Errors are
 // silently ignored — reason is always optional.
