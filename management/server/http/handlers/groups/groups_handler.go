@@ -9,6 +9,7 @@ import (
 
 	"github.com/netbirdio/netbird/management/server/account"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
+	"github.com/netbirdio/netbird/management/server/jit"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 
 	"github.com/netbirdio/netbird/management/server/types"
@@ -85,6 +86,10 @@ func (h *handler) getAllGroups(w http.ResponseWriter, r *http.Request) {
 
 	groupsResponse := make([]*api.Group, 0, len(groups))
 	for _, group := range groups {
+		// JIT: hide JIT-owned backing groups from the standard list (rebaseability marker).
+		if jit.IsJitOwnedName(group.Name) {
+			continue
+		}
 		groupsResponse = append(groupsResponse, toGroupResponse(accountPeers, group))
 	}
 

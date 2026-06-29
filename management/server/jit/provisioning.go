@@ -3,6 +3,7 @@ package jit
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/rs/xid"
 
@@ -60,6 +61,14 @@ type ProvisionSpec struct {
 // identify JIT-owned NetBird groups and policies.
 func MarkerName(marker, name string) string {
 	return marker + name
+}
+
+// IsJitOwnedName reports whether name belongs to a JIT-owned NetBird object.
+// It returns true iff name is prefixed with DefaultMarker ("jit:"). Used by
+// the groups and policies list handlers (Task 10) to hide JIT backing objects
+// from the standard management UI without altering their behavior.
+func IsJitOwnedName(name string) bool {
+	return strings.HasPrefix(name, DefaultMarker)
 }
 
 // AssertApiGroup guards the hard invariant: JIT must only ever touch

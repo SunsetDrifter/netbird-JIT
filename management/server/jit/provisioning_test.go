@@ -492,3 +492,32 @@ func TestUpdateBackingPolicy_NoOp_WhenNotProvisioned(t *testing.T) {
 		t.Errorf("SavePolicy should not be called for unprovisioned policy")
 	}
 }
+
+// ---------------------------------------------------------------------------
+// IsJitOwnedName
+// ---------------------------------------------------------------------------
+
+func TestIsJitOwnedName(t *testing.T) {
+	tt := []struct {
+		name  string
+		input string
+		want  bool
+	}{
+		{"marker prefix", jit.DefaultMarker + "my-policy", true},
+		{"marker prefix only", jit.DefaultMarker, true},
+		{"normal name", "my-policy", false},
+		{"empty name", "", false},
+		{"partial prefix", "ji", false},
+		{"case sensitive no match", "JIT:policy", false},
+		{"marker in middle", "prefix-" + jit.DefaultMarker + "policy", false},
+	}
+
+	for _, tc := range tt {
+		t.Run(tc.name, func(t *testing.T) {
+			got := jit.IsJitOwnedName(tc.input)
+			if got != tc.want {
+				t.Errorf("IsJitOwnedName(%q) = %v, want %v", tc.input, got, tc.want)
+			}
+		})
+	}
+}
